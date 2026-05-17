@@ -8,6 +8,12 @@ import sys
 import subprocess
 from pathlib import Path
 
+# Fix Unicode output on Windows
+if sys.platform == "win32":
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
 def check_dependencies():
     """检查依赖是否安装"""
     import sys
@@ -56,6 +62,9 @@ def check_ffmpeg():
 
 def setup_environment():
     """设置环境变量"""
+    from dotenv import load_dotenv
+    load_dotenv()
+    
     # 设置OpenAI配置
     if not os.getenv("OPENAI_API_KEY"):
         print("⚠️  警告: 未设置OPENAI_API_KEY环境变量")

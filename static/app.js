@@ -147,6 +147,7 @@ class VideoTranscriber {
     this.dlScript           = document.getElementById('downloadScript');
     this.dlTranslation      = document.getElementById('downloadTranslation');
     this.dlSummary          = document.getElementById('downloadSummary');
+    this.dlHtml             = document.getElementById('downloadHtml');
     this.translationTabBtn  = document.getElementById('translationTabBtn');
     this.tabBtns            = document.querySelectorAll('.tab-btn');
     this.tabPanes           = document.querySelectorAll('.tab-pane');
@@ -204,6 +205,7 @@ class VideoTranscriber {
     this.dlScript.addEventListener('click',      () => this._downloadFile('script'));
     this.dlTranslation.addEventListener('click', () => this._downloadFile('translation'));
     this.dlSummary.addEventListener('click',     () => this._downloadFile('summary'));
+    this.dlHtml.addEventListener('click',        () => this._downloadFile('html'));
 
     if (this.uploadPickBtn && this.fileInput && this.uploadZone) {
       this.uploadPickBtn.addEventListener('click', (e) => {
@@ -687,6 +689,8 @@ class VideoTranscriber {
       this.dlTranslation.style.display      = 'none';
     }
 
+    this.dlHtml.style.display = 'inline-flex';
+
     this.resultsPanel.classList.add('show');
     this._switchTab('script');
     this.resultsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -709,9 +713,11 @@ class VideoTranscriber {
       const task = await r.json();
 
       let filename;
-      if      (type === 'script')      filename = task.script_path      ? task.script_path.split('/').pop()      : `transcript_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
-      else if (type === 'summary')     filename = task.summary_path     ? task.summary_path.split('/').pop()     : `summary_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
-      else if (type === 'translation') filename = task.translation_path ? task.translation_path.split('/').pop() : `translation_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
+      const sep = (p) => p ? p.replace(/\\/g, '/').split('/').pop() : null;
+      if      (type === 'script')      filename = sep(task.script_path)      || `transcript_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
+      else if (type === 'summary')     filename = sep(task.summary_path)     || `summary_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
+      else if (type === 'translation') filename = sep(task.translation_path) || `translation_${task.safe_title||'x'}_${task.short_id||'x'}.md`;
+      else if (type === 'html')        filename = sep(task.html_path)        || `analysis_${task.short_id||'x'}.html`;
       else throw new Error('Unknown type');
 
       const a = document.createElement('a');

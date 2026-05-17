@@ -1,0 +1,53 @@
+========================================
+  AI-Video-Transcriber 使用说明
+========================================
+
+【启动服务】
+  打开 PowerShell，执行以下命令：
+
+    cd "C:\Users\admin\Desktop\内容分析agent"
+    $env:PYTHONIOENCODING='utf-8'
+    .\venv\Scripts\python.exe start.py
+
+  看到 "Uvicorn running on http://0.0.0.0:8000" 即启动成功。
+
+【停止服务】
+  在启动的那个 PowerShell 窗口按 Ctrl+C。
+
+【使用步骤】
+  1. 浏览器打开 http://localhost:8000
+  2. 粘贴视频链接（支持 B站、YouTube、TikTok 等 30+ 平台）
+  3. 选择摘要输出语言（中文/英文/日文等）
+  4. 点击 Transcribe 按钮
+  5. 等待处理完成，页面显示：
+     - 优化后的原文转录
+     - AI 摘要/总结
+     - 翻译（源语言与摘要语言不同时自动生成）
+  6. 点击下载按钮保存 Markdown 文件
+
+【支持的平台】
+  B站、YouTube、TikTok、抖音、快手、优酷、爱奇艺、腾讯视频、
+  Apple Podcasts、SoundCloud、Facebook、Instagram、Twitter 等
+
+【处理模式】
+  - 字幕模式（绿色进度条）：平台有原生字幕时直接提取，秒级完成
+  - Whisper模式（琥珀色进度条）：无字幕时下载音频转录，较慢
+
+【AI 模型配置】
+  已默认配置 DeepSeek V4 API，直接可用。
+  如需更换模型，在页面 AI Settings 面板修改 Base URL 和 Key。
+
+【本地文件上传】
+  支持上传 .mp4 .mp3 .mkv .wav .txt 等格式（最大 200MB）
+  拖拽文件到虚线区域或点击选择即可。
+
+【常见问题】
+  Q: 端口被占用？
+  A: 打开 .env 文件，把 PORT=8000 改成其他端口如 8001
+
+  Q: API 调用失败？
+  A: 检查网络是否能访问 https://api.deepseek.com
+     确认 API Key 余额充足
+
+  Q: 视频下载失败？
+  A: 某些平台可能需要代理/VPN 才能访问

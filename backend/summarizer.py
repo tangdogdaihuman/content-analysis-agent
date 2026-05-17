@@ -24,7 +24,7 @@ class Summarizer:
             logger.warning("未设置OPENAI_API_KEY环境变量，将无法使用摘要功能")
 
         if effective_key:
-            kwargs = {"api_key": effective_key}
+            kwargs = {"api_key": effective_key, "timeout": 120.0, "max_retries": 1}
             if effective_url:
                 kwargs["base_url"] = effective_url
                 logger.info(f"OpenAI客户端已初始化，base_url={effective_url}")
@@ -34,9 +34,10 @@ class Summarizer:
         else:
             self.client = None
 
-        # 允许前端指定模型，覆盖硬编码的 gpt-3.5-turbo / gpt-4o
-        self.fast_model     = model or "gpt-3.5-turbo"
-        self.advanced_model = model or "gpt-4o"
+        # 允许前端指定模型，env MODEL_NAME -> 硬编码后备
+        env_model = os.getenv("MODEL_NAME", "")
+        self.fast_model     = model or env_model or "gpt-3.5-turbo"
+        self.advanced_model = model or env_model or "gpt-4o"
         
         # 支持的语言映射
         self.language_map = {
@@ -1009,21 +1010,43 @@ Core requirements:
         language_name = self.language_map.get(target_language, "中文（简体）")
         
         # 构建英文提示词，适用于所有目标语言
-        system_prompt = f"""You are an expert editor. Write a concise EXECUTIVE SUMMARY in {language_name} of the following material.
+        system_prompt = f"""You are a professional content analyst. Read the following transcript and produce a KEY POINTS SUMMARY in {language_name}.
 
-Hard rules:
-- Length: about 180–450 words in {language_name} (use the lower end if the source is short). Never reproduce long verbatim quotes or extended sentence-by-sentence rewrites of the transcript.
-- Content: main thesis, 3–7 key takeaways, important conclusions, and critical facts or numbers only. Tight prose; short bullet lists are OK for takeaways.
-- Do NOT restate the full transcript, do NOT add preamble ("Here is…"), and do NOT add closings such as offers to revise or "let me know if…" / 客套尾注.
-- Markdown: optional `## Key takeaways` then paragraphs; avoid decorative filler headings.
+WHAT TO DO:
+1. Identify the speaker's MAIN ARGUMENT or central message in 2-3 sentences.
+2. Extract 8-15 KEY POINTS. Each point should:
+   - Capture one distinct idea, claim, or insight from the speaker
+   - Be specific and substantive, not vague
+   - Include supporting details: examples, data, counterarguments mentioned
+   - Note timestamps when possible (e.g. [12:30])
+3. List 3-5 NOTABLE QUOTES — verbatim statements that are particularly striking, controversial, or quotable.
+4. End with a brief CONCLUSION summarizing who this content is relevant to and why.
 
-Output ONLY the summary body in {language_name}."""
+FORMAT:
+## 核心观点
+(2-3 sentences capturing the thesis)
 
-        user_prompt = f"""Summarize the following content in {language_name}. Follow the system rules strictly (brief executive summary, no meta-commentary):
+## 要点
+- **[timestamp if available]** Point 1 with supporting detail...
+- **[timestamp if available]** Point 2 with supporting detail...
+- ...
+
+## 关键引用
+> "verbatim quote" — [timestamp]
+
+## 适用人群
+(1-2 sentences on target audience and value)
+
+HARD RULES:
+- Output in {language_name} ONLY. No preamble, no "Here is...", no closings like "希望以上内容..." or "let me know if...".
+- Each key point must be a complete, self-contained insight — not a vague topic label.
+- Do NOT skip sections of the transcript. Cover the full content."""
+
+        user_prompt = f"""Extract key points from this transcript in {language_name}:
 
 {transcript}"""
 
-        logger.info(f"正在生成{language_name}摘要...")
+        logger.info(f"正在生成{language_name}要点总结...")
         
         # 调用OpenAI API
         response = self.client.chat.completions.create(
@@ -1032,7 +1055,7 @@ Output ONLY the summary body in {language_name}."""
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=2200,
+            max_tokens=4096,
             temperature=0.25
         )
         
@@ -1056,20 +1079,22 @@ Output ONLY the summary body in {language_name}."""
         for i, chunk in enumerate(chunks):
             logger.info(f"正在摘要第 {i+1}/{len(chunks)} 块...")
             
-            system_prompt = f"""You are a summarization expert. Write a brief section summary in {language_name}.
+            system_prompt = f"""You are a content analyst. Write a detailed section analysis in {language_name}.
 
 This is part {i+1} of {len(chunks)} of the full transcript.
 
 Rules:
-- About 80–160 words in {language_name}; bullets OK for key points.
-- Do not echo the transcript verbatim; capture only new information in this segment.
+- Be thorough: extract ALL key points, arguments, data, and quotes from this section.
+- Length: minimum 150 words in {language_name}, more if content is dense.
+- Use bullet points for key claims and sub-points.
+- Quote notable statements with approximate timestamps.
 - No preamble or meta-closings."""
 
-            user_prompt = f"""[Part {i+1}/{len(chunks)}] Summarize in {language_name} (80–160 words, tight prose):
+            user_prompt = f"""[Part {i+1}/{len(chunks)}] Provide a DETAILED analysis in {language_name}:
 
 {chunk}
 
-Output content only, no headings like "Summary:"."""
+Output content only, no headings like "Analysis:" or "Summary:"."""
 
             try:
                 response = self.client.chat.completions.create(
@@ -1078,7 +1103,7 @@ Output content only, no headings like "Summary:"."""
                         {"role": "system", "content": system_prompt},
                         {"role": "user", "content": user_prompt}
                     ],
-                    max_tokens=600,
+                    max_tokens=1200,
                     temperature=0.25
                 )
                 
@@ -1153,14 +1178,34 @@ Output content only, no headings like "Summary:"."""
         language_name = self.language_map.get(target_language, "中文（简体）")
         
         try:
-            system_prompt = f"""You integrate partial summaries into ONE concise executive summary in {language_name}.
+            system_prompt = f"""You are a professional content analyst. Merge these partial analyses into ONE comprehensive content analysis in {language_name}.
 
-Rules:
-- Total length about 280–650 words in {language_name}; remove duplication, do not expand into a transcript-length rewrite.
-- Markdown: paragraphs separated by blank lines; optional `## Key takeaways` only if it adds clarity.
-- No preamble, no meta-closings (e.g. offers to revise or "let me know")."""
+OUTPUT STRUCTURE:
+## 核心观点
+- Synthesize the central thesis across all sections (2-4 paragraphs).
 
-            user_prompt = f"""Merge the following partial summaries into one executive summary in {language_name}:
+## 内容拆解
+Organize the merged content into logical topics. For each:
+### {{{{topic title}}}}
+- Integrated key points from relevant sections
+- Supporting arguments and examples
+- Notable quotes with timestamps
+
+## 关键信息
+- All important facts, statistics, names, dates
+- Controversial or surprising claims
+- Practical advice or takeaways
+
+## 总结
+- 1-2 paragraph synthesis
+- Target audience and value
+
+RULES:
+- Remove ALL duplication across sections.
+- Be comprehensive: minimum 500 words in {language_name}.
+- No preamble or meta-closings."""
+            
+            user_prompt = f"""Merge the following partial analyses into one comprehensive analysis in {language_name}:
 
 {combined_summaries}"""
 
@@ -1170,7 +1215,7 @@ Rules:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                max_tokens=2200,
+                max_tokens=4096,
                 temperature=0.25
             )
 

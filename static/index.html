@@ -476,6 +476,7 @@
       transition: all .2s;
     }
     .btn-dl:hover { border-color: var(--accent-dim); color: var(--accent-text); }
+    .btn-dl-html { background: linear-gradient(135deg, #667eea18, #764ba218); border-color: #667eea40; }
 
     .tab-bar {
       display: flex;
@@ -725,6 +726,10 @@
         <button class="btn-dl" id="downloadSummary">
           <i class="fas fa-download"></i>
           <span data-i18n="download_summary">Summary</span>
+        </button>
+        <button class="btn-dl btn-dl-html" id="downloadHtml" style="display:none;">
+          <i class="fas fa-file-code"></i>
+          <span>HTML</span>
         </button>
       </div>
 

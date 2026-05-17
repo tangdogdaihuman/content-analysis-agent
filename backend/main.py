@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 import os
 import asyncio
@@ -12,6 +12,8 @@ import uuid
 import json
 import re
 import openai
+from datetime import datetime
+import markdown
 
 from video_processor import VideoProcessor
 from transcriber import Transcriber
@@ -119,6 +121,329 @@ def _sanitize_title_for_filename(title: str) -> str:
     safe = re.sub(r"\s+", "_", safe).strip("._-")
     # 最长限制，避免过长文件名问题
     return safe[:80] or "untitled"
+
+
+def _generate_analysis_html(title: str, markdown_content: str, language: str) -> str:
+    """将 Markdown 分析转换为精美的 HTML 页面。"""
+    md_html = markdown.markdown(
+        markdown_content,
+        extensions=["extra", "codehilite", "toc"]
+    )
+    
+    lang_name = {"en": "English", "zh": "中文", "ja": "日本語", "ko": "한국어"}.get(language, language)
+    today = datetime.now().strftime("%Y.%m.%d")
+    safe_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{safe_title} / 内容分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after {{ margin: 0; padding: 0; box-sizing: border-box; }}
+
+  :root {{
+    --bg: #0d0d0d;
+    --surface: #161616;
+    --surface-hi: #1e1e1e;
+    --ink: #e6e1d8;
+    --ink-soft: #b0aba2;
+    --ink-dim: #77736c;
+    --accent: #d4784e;
+    --accent-ghost: #d4784e1a;
+    --accent-bright: #f09860;
+    --border: #2a2723;
+    --shadow: 0 1px 3px rgba(0,0,0,0.4);
+    --font-body: 'Noto Serif SC', 'STSong', 'Songti SC', serif;
+    --font-mono: 'DM Mono', 'Cascadia Code', 'Consolas', monospace;
+  }}
+
+  body {{
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 16px;
+    line-height: 2;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }}
+
+  /* ── Texture overlay ── */
+  body::before {{
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }}
+
+  .page {{
+    max-width: 780px;
+    margin: 0 auto;
+    padding: 80px 40px 60px;
+  }}
+
+  /* ── Masthead ── */
+  .masthead {{
+    position: relative;
+    margin-bottom: 60px;
+    padding-bottom: 40px;
+    border-bottom: 1px solid var(--border);
+  }}
+
+  .masthead-tag {{
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 24px;
+  }}
+
+  .masthead h1 {{
+    font-size: 38px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.35;
+    color: var(--ink);
+  }}
+
+  .masthead-meta {{
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-top: 28px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--ink-dim);
+    letter-spacing: 0.05em;
+  }}
+
+  .masthead-meta .sep {{
+    width: 4px; height: 4px;
+    border-radius: 50%;
+    background: var(--accent);
+    opacity: 0.6;
+  }}
+
+  /* ── Stamp ── */
+  .stamp {{
+    position: absolute;
+    top: 0; right: 0;
+    width: 56px; height: 56px;
+    border: 2px solid var(--accent);
+    border-radius: 50%;
+    opacity: 0.3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: rotate(8deg);
+  }}
+  .stamp::after {{
+    content: '析';
+    font-family: var(--font-body);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent);
+  }}
+
+  /* ── Article body ── */
+  .article {{ }}
+
+  .article h2 {{
+    font-size: 24px;
+    font-weight: 700;
+    margin: 48px 0 16px;
+    padding-left: 16px;
+    border-left: 3px solid var(--accent);
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }}
+  .article h2:first-of-type {{ margin-top: 0; }}
+
+  .article h3 {{
+    font-size: 19px;
+    font-weight: 600;
+    margin: 36px 0 10px;
+    color: var(--ink-soft);
+    letter-spacing: -0.005em;
+  }}
+
+  .article h4 {{
+    font-size: 16px;
+    font-weight: 600;
+    margin: 24px 0 8px;
+    color: var(--ink-dim);
+  }}
+
+  .article p {{
+    margin-bottom: 16px;
+    text-align: justify;
+    hyphens: auto;
+    text-indent: 2em;
+  }}
+  .article p:first-of-type {{ text-indent: 0; }}
+
+  .article ul, .article ol {{
+    padding-left: 28px;
+    margin: 12px 0 20px;
+  }}
+  .article li {{
+    margin-bottom: 8px;
+    padding-left: 4px;
+  }}
+  .article li::marker {{ color: var(--accent); }}
+
+  .article strong {{ color: var(--ink); font-weight: 700; }}
+  .article em {{ font-style: italic; color: var(--ink-soft); }}
+
+  .article blockquote {{
+    margin: 28px 0;
+    padding: 20px 28px;
+    background: var(--surface-hi);
+    border-left: 2px solid var(--accent);
+    font-style: italic;
+    color: var(--ink-soft);
+    border-radius: 0 4px 4px 0;
+    position: relative;
+  }}
+  .article blockquote::before {{
+    content: '"';
+    position: absolute;
+    top: -8px; left: 12px;
+    font-size: 48px;
+    color: var(--accent);
+    opacity: 0.1;
+    font-family: var(--font-body);
+    line-height: 1;
+  }}
+
+  .article code {{
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--surface);
+    padding: 2px 6px;
+    border-radius: 3px;
+    color: var(--accent);
+  }}
+
+  .article pre {{
+    background: var(--surface);
+    padding: 20px 24px;
+    border-radius: 6px;
+    overflow-x: auto;
+    margin: 18px 0;
+    font-size: 14px;
+    border: 1px solid var(--border);
+  }}
+  .article pre code {{
+    background: none;
+    padding: 0;
+    color: var(--ink-soft);
+  }}
+
+  .article table {{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 20px 0;
+    font-size: 15px;
+  }}
+  .article th, .article td {{
+    border: 1px solid var(--border);
+    padding: 12px 16px;
+    text-align: left;
+  }}
+  .article th {{
+    background: var(--surface);
+    font-weight: 600;
+    font-size: 14px;
+    letter-spacing: 0.02em;
+    color: var(--accent);
+  }}
+
+  .article hr {{
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 40px 0;
+  }}
+
+  .article a {{
+    color: var(--accent);
+    text-decoration: none;
+    border-bottom: 1px solid var(--accent-ghost);
+    transition: border-color 0.2s;
+  }}
+  .article a:hover {{ border-color: var(--accent-bright); }}
+
+  /* ── Colophon ── */
+  .colophon {{
+    margin-top: 72px;
+    padding-top: 32px;
+    border-top: 1px solid var(--border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-dim);
+    letter-spacing: 0.05em;
+  }}
+
+  .colophon-dot {{
+    width: 8px; height: 8px;
+    background: var(--accent);
+    opacity: 0.25;
+    border-radius: 50%;
+  }}
+
+  /* ── Mobile ── */
+  @media (max-width: 680px) {{
+    .page {{ padding: 40px 20px 40px; }}
+    .masthead h1 {{ font-size: 26px; }}
+    .masthead {{ margin-bottom: 40px; padding-bottom: 28px; }}
+    .stamp {{ width: 40px; height: 40px; top: -4px; }}
+    .stamp::after {{ font-size: 16px; }}
+    .article h2 {{ font-size: 20px; margin-top: 36px; }}
+    .article h3 {{ font-size: 17px; }}
+    .article p {{ text-align: left; text-indent: 1.5em; }}
+    .article blockquote {{ padding: 16px 20px; }}
+  }}
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header class="masthead">
+    <div class="stamp"></div>
+    <div class="masthead-tag">Content Analysis</div>
+    <h1>{safe_title}</h1>
+    <div class="masthead-meta">
+      <span>{lang_name}</span>
+      <span class="sep"></span>
+      <span>{today}</span>
+    </div>
+  </header>
+
+  <article class="article">
+    {md_html}
+  </article>
+
+  <footer class="colophon">
+    <span>内容分析 Agent</span>
+    <span class="colophon-dot"></span>
+    <span>{today}</span>
+  </footer>
+
+</div>
+</body>
+</html>"""
 
 
 def _txt_to_raw_transcript_markdown(body: str) -> str:
@@ -253,6 +578,12 @@ async def _run_post_extract_pipeline(
     async with aiofiles.open(summary_path, "w", encoding="utf-8") as f:
         await f.write(summary_with_source)
 
+    html_content = _generate_analysis_html(video_title, summary, summary_language)
+    html_filename = f"analysis_{task_id}.html"
+    html_path = TEMP_DIR / html_filename
+    async with aiofiles.open(html_path, "w", encoding="utf-8") as f:
+        await f.write(html_content)
+
     task_result = {
         "status": "completed",
         "progress": 100,
@@ -262,6 +593,7 @@ async def _run_post_extract_pipeline(
         "summary": summary_with_source,
         "script_path": str(script_path),
         "summary_path": str(summary_path),
+        "html_path": str(html_path),
         "short_id": short_id,
         "safe_title": safe_title,
         "detected_language": detected_language,
@@ -285,6 +617,14 @@ async def _run_post_extract_pipeline(
         processing_urls.discard(dedup_url)
     if task_id in active_tasks:
         del active_tasks[task_id]
+
+    # 清理临时文件：删除raw转录和音频，只保留最终输出
+    try:
+        if raw_md_path and raw_md_path.exists():
+            raw_md_path.unlink()
+            logger.info(f"已删除原始转录: {raw_md_path}")
+    except Exception as e:
+        logger.warning(f"删除原始转录失败: {e}")
 
 
 @app.get("/")
@@ -473,6 +813,8 @@ async def process_video_task(
     异步处理视频任务
     """
     try:
+        audio_path = None  # 初始化，字幕路径下无音频文件
+
         # ── 阶段一：优先尝试获取平台字幕（快速路径） ──────────────────────
         tasks[task_id].update({
             "status": "processing",
@@ -552,8 +894,13 @@ async def process_video_task(
             model_id=model_id,
         )
 
-        # 不要立即删除临时文件！保留给用户下载
-        # 文件会在一定时间后自动清理或用户手动清理
+        # 清理音频临时文件
+        if audio_path:
+            try:
+                Path(audio_path).unlink(missing_ok=True)
+                logger.info(f"已删除音频文件: {audio_path}")
+            except Exception as e:
+                logger.warning(f"删除音频文件失败: {e}")
 
     except Exception as e:
         logger.error(f"任务 {task_id} 处理失败: {str(e)}")
@@ -598,6 +945,7 @@ async def process_upload_task(
     model_id: str = "",
 ):
     source_ref = f"upload:{original_name}"
+    audio_path = None  # 初始化
     try:
         if api_key:
             effective_url = model_base_url.rstrip("/") or None
@@ -663,6 +1011,14 @@ async def process_upload_task(
             model_base_url=model_base_url,
             model_id=model_id,
         )
+
+        # 清理音频临时文件
+        if audio_path:
+            try:
+                Path(audio_path).unlink(missing_ok=True)
+                logger.info(f"已删除音频文件: {audio_path}")
+            except Exception as e:
+                logger.warning(f"删除音频文件失败: {e}")
 
     except Exception as e:
         logger.error(f"任务 {task_id} 处理失败: {str(e)}")
@@ -750,27 +1106,20 @@ async def task_stream(task_id: str):
 
 @app.get("/api/download/{filename}")
 async def download_file(filename: str):
-    """
-    直接从temp目录下载文件（简化方案）
-    """
+    """直接从temp目录下载文件"""
     try:
-        # 检查文件扩展名安全性
-        if not filename.endswith('.md'):
-            raise HTTPException(status_code=400, detail="仅支持下载.md文件")
+        if not (filename.endswith('.md') or filename.endswith('.html')):
+            raise HTTPException(status_code=400, detail="仅支持下载.md和.html文件")
         
-        # 检查文件名格式（防止路径遍历攻击）
         if '..' in filename or '/' in filename or '\\' in filename:
             raise HTTPException(status_code=400, detail="文件名格式无效")
             
         file_path = TEMP_DIR / filename
         if not file_path.exists():
             raise HTTPException(status_code=404, detail="文件不存在")
-            
-        return FileResponse(
-            file_path,
-            filename=filename,
-            media_type="text/markdown"
-        )
+        
+        media_type = "text/html" if filename.endswith('.html') else "text/markdown"
+        return FileResponse(file_path, filename=filename, media_type=media_type)
     except HTTPException:
         raise
     except Exception as e:
