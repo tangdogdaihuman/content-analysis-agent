@@ -1,5 +1,5 @@
 /* ────────────────────────────────────────────────────────────
-   AI Video Transcriber · app.js
+   内容分析 Agent · app.js
    ──────────────────────────────────────────────────────────── */
 
 class VideoTranscriber {
@@ -7,7 +7,7 @@ class VideoTranscriber {
     this.currentTaskId  = null;
     this.eventSource    = null;
     this.apiBase        = '/api';
-    this.currentLang    = 'en';
+    this.currentLang    = 'zh';
 
     /* Smart progress simulation */
     this.sp = {
@@ -17,13 +17,13 @@ class VideoTranscriber {
 
     this.i18n = {
       en: {
-        title:                   'AI Video Transcriber',
-        subtitle:                'Supports automatic transcription and AI summary for 30+ platforms',
-        video_url_placeholder:   'Paste YouTube, Tiktok, Bilibili or other platform video URLs...',
-        start_transcription:     'Transcribe',
+        title:                   'Content Analysis Agent',
+        subtitle:                'Paste a link, get key points & HTML report. 30+ platforms supported.',
+        video_url_placeholder:   'Paste Bilibili / YouTube / TikTok / Podcast link…',
+        start_transcription:     'Analyze',
         ai_settings:             'AI Settings',
         model_base_url:          'Model API Base URL',
-        model_base_url_placeholder: 'https://openrouter.ai/api/v1',
+        model_base_url_placeholder: 'https://api.deepseek.com/v1',
         api_key:                 'API Key',
         api_key_placeholder:     'sk-...',
         fetch_models:            'Fetch',
@@ -33,26 +33,26 @@ class VideoTranscriber {
         processing_progress:     'Processing',
         preparing:               'Preparing…',
         transcript_text:         'Transcript',
-        intelligent_summary:     'AI Summary',
+        intelligent_summary:     'Key Points',
         translation:             'Translation',
         download_transcript:     'Transcript',
         download_translation:    'Translation',
-        download_summary:        'Summary',
-        empty_hint:              'Paste a video URL or drop a file above and let AI do the heavy lifting.',
-        footer_text:             'This tool is part of <a href="https://sipsip.ai" target="_blank" style="color:var(--accent-text);text-decoration:none;">sipsip.ai</a> — distill anything and get daily AI briefs from your favorite creators',
+        download_summary:        'Key Points',
+        empty_hint:              'Paste a video link or upload a file — AI extracts the key points for you.',
+        footer_text:             '<a href="https://github.com/tangdogdaihuman/content-analysis-agent" target="_blank">Open Source</a> · Self-hosted · Your data stays on your machine',
         processing:              'Processing…',
         downloading_video:       'Downloading audio…',
         parsing_video:           'Parsing video info…',
         transcribing_audio:      'Transcribing audio…',
         optimizing_transcript:   'Optimizing transcript…',
-        generating_summary:      'Generating summary…',
+        generating_summary:      'Generating analysis…',
         detecting_subtitles:     'Detecting subtitles…',
         subtitle_found:          'Subtitles found! Processing text…',
         no_subtitle:             'No subtitles found, downloading audio…',
-        mode_subtitle:           '⚡ Subtitle',
-        mode_whisper:            '🎙 Whisper',
+        mode_subtitle:           'Subtitle',
+        mode_whisper:            'Whisper',
         completed:               'Done!',
-        error_invalid_url:       'Please enter a valid video URL',
+        error_invalid_url:       'Please enter a valid URL',
         error_processing_failed: 'Processing failed: ',
         error_no_download:       'No file available for download',
         error_download_failed:   'Download failed: ',
@@ -67,42 +67,42 @@ class VideoTranscriber {
         error_upload_size:       (mb) => `File exceeds ${mb} MB limit`,
       },
       zh: {
-        title:                   'AI 视频转录器',
-        subtitle:                '粘贴 YouTube、TikTok 或任意公开视频链接，获取转录文本和 AI 摘要。',
-        video_url_placeholder:   '请输入视频链接…',
-        start_transcription:     '开始转录',
+        title:                   '内容分析 Agent',
+        subtitle:                '丢链接，出要点总结 + HTML 报告。支持 30+ 平台。',
+        video_url_placeholder:   '粘贴 B站 / YouTube / 抖音 / TikTok 链接…',
+        start_transcription:     '分析',
         ai_settings:             'AI 设置',
-        model_base_url:          'Model API 地址',
-        model_base_url_placeholder: 'https://openrouter.ai/api/v1',
+        model_base_url:          'API 地址',
+        model_base_url_placeholder: 'https://api.deepseek.com/v1',
         api_key:                 'API Key',
         api_key_placeholder:     'sk-...',
-        fetch_models:            '获取',
+        fetch_models:            '加载',
         model_select:            '模型',
         model_default:           '— 使用服务器默认 —',
         summary_language:        '摘要语言',
-        processing_progress:     '处理进度',
+        processing_progress:     '处理中',
         preparing:               '准备中…',
-        transcript_text:         '转录文本',
-        intelligent_summary:     '智能摘要',
+        transcript_text:         '原文',
+        intelligent_summary:     '要点总结',
         translation:             '翻译',
-        download_transcript:     '转录',
+        download_transcript:     '原文',
         download_translation:    '翻译',
-        download_summary:        '摘要',
-        empty_hint:              '在上方粘贴视频链接或拖放文件，让 AI 来处理一切。',
-        footer_text:             '本工具是 <a href="https://sipsip.ai" target="_blank" style="color:var(--accent-text);text-decoration:none;">sipsip.ai</a> 的一部分 — 提取任何内容要点并构建你自己的知识库。',
+        download_summary:        '要点',
+        empty_hint:              '粘贴视频链接或上传文件，AI 自动提炼要点。',
+        footer_text:             '<a href="https://github.com/tangdogdaihuman/content-analysis-agent" target="_blank">开源</a> · 本地部署 · 数据不过第三方',
         processing:              '处理中…',
         downloading_video:       '正在下载音频…',
         parsing_video:           '正在解析视频信息…',
         transcribing_audio:      '正在转录音频…',
-        optimizing_transcript:   '正在优化转录文本…',
-        generating_summary:      '正在生成摘要…',
+        optimizing_transcript:   '正在优化文本…',
+        generating_summary:      '正在生成分析…',
         detecting_subtitles:     '正在检测字幕…',
-        subtitle_found:          '字幕获取成功！正在处理文本…',
+        subtitle_found:          '字幕获取成功，正在处理文本…',
         no_subtitle:             '未找到字幕，正在下载音频…',
-        mode_subtitle:           '⚡ 字幕模式',
-        mode_whisper:            '🎙 Whisper 模式',
+        mode_subtitle:           '字幕模式',
+        mode_whisper:            'Whisper 转录',
         completed:               '处理完成！',
-        error_invalid_url:       '请输入有效的视频链接',
+        error_invalid_url:       '请输入有效的链接',
         error_processing_failed: '处理失败：',
         error_no_download:       '没有可下载的文件',
         error_download_failed:   '下载失败：',
@@ -111,7 +111,7 @@ class VideoTranscriber {
         models_error:            '获取模型失败',
         upload_or:               '或拖放文件到此处',
         upload_formats:          '.mp3 · .mp4 · .wav · .m4a · .webm · .mkv · .ogg · .flac',
-        upload_files_btn:        '上传文件',
+        upload_files_btn:        '选择文件',
         error_upload_type:       '不支持的文件类型',
         error_upload_empty:      '文件为空',
         error_upload_size:       (mb) => `文件超过 ${mb} MB 限制`,
@@ -160,6 +160,8 @@ class VideoTranscriber {
     this.fetchStatus        = document.getElementById('fetchStatus');
     this.modelSelect        = document.getElementById('modelSelect');
     this.fetchIcon          = document.getElementById('fetchIcon');
+    this.apiHelpToggle      = document.getElementById('apiHelpToggle');
+    this.apiHelpBody        = document.getElementById('apiHelpBody');
     this.uploadZone         = document.getElementById('uploadZone');
     this.uploadPickBtn      = document.getElementById('uploadPickBtn');
     this.fileInput          = document.getElementById('fileInput');
@@ -180,6 +182,13 @@ class VideoTranscriber {
       const open = this.settingsBody.classList.toggle('open');
       this.settingsToggle.classList.toggle('open', open);
     });
+
+    // API help toggle
+    if (this.apiHelpToggle) {
+      this.apiHelpToggle.addEventListener('click', () => {
+        this.apiHelpBody.classList.toggle('open');
+      });
+    }
 
     // Fetch models
     this.fetchModelsBtn.addEventListener('click', () => this._fetchModels());
@@ -365,10 +374,14 @@ class VideoTranscriber {
   async _startTranscription() {
     if (this.submitBtn.disabled) return;
 
-    const url     = this.videoUrlInput.value.trim();
-    const sumLang = this.summaryLangSel.value;
+    let input = this.videoUrlInput.value.trim();
+    if (!input) { this._showError(this.t('error_invalid_url')); return; }
 
-    if (!url) { this._showError(this.t('error_invalid_url')); return; }
+    // 从粘贴文本中提取 URL（支持带标题的分享文案）
+    const urlMatch = input.match(/(https?:\/\/[^\s]+)/);
+    const url = urlMatch ? urlMatch[1] : input;
+
+    const sumLang = this.summaryLangSel.value;
 
     this._setLoading(true);
     this._hideError();

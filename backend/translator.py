@@ -1,7 +1,10 @@
+import asyncio
 import logging
 import os
 import re
 from typing import Optional
+
+API_SEMAPHORE = asyncio.Semaphore(8)
 
 from openai import OpenAI
 
@@ -262,15 +265,11 @@ class Translator:
             return text
     
     async def _translate_with_chunks(self, text: str, target_lang_name: str, source_lang_name: str) -> str:
-        """分块翻译长文本"""
+        """分块翻译长文本（并行）"""
         chunks = self._smart_chunk_text(text, max_chars_per_chunk=4000)
         logger.info(f"分割为 {len(chunks)} 个块进行翻译")
-        
-        translated_chunks = []
-        
-        for i, chunk in enumerate(chunks):
-            logger.info(f"正在翻译第 {i+1}/{len(chunks)} 块...")
-            
+
+        async def _translate_one(i: int, chunk: str):
             system_prompt = f"""你是专业翻译专家。请将{source_lang_name}文本准确翻译为{target_lang_name}。
 
 这是完整文档的第{i+1}部分，共{len(chunks)}部分。
@@ -290,22 +289,27 @@ class Translator:
 只返回翻译结果。"""
 
             try:
-                response = self.client.chat.completions.create(
-                    model=self._translation_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    max_tokens=4000,
-                    temperature=0.1
+                async with API_SEMAPHORE:
+                    response = await asyncio.to_thread(
+                        lambda: self.client.chat.completions.create(
+                        model=self._translation_model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        max_tokens=4000,
+                        temperature=0.1
+                    )
                 )
-
-                translated_chunk = response.choices[0].message.content or ""
-                translated_chunks.append(strip_llm_artifacts(translated_chunk))
+                return i, strip_llm_artifacts(response.choices[0].message.content or "")
             except Exception as e:
                 logger.error(f"翻译第 {i+1} 块失败: {e}")
-                # 失败时保留原文
-                translated_chunks.append(chunk)
+                return i, chunk
+
+        results = await asyncio.gather(*[_translate_one(i, c) for i, c in enumerate(chunks)])
+        translated_chunks = [None] * len(results)
+        for i, t in results:
+            translated_chunks[i] = t
         
         # 合并翻译结果
         return strip_llm_artifacts("\n\n".join(translated_chunks))

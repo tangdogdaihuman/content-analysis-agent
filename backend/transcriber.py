@@ -57,9 +57,9 @@ class Transcriber:
                 return self.model.transcribe(
                     audio_path,
                     language=language,
-                    beam_size=5,
-                    best_of=5,
-                    temperature=[0.0, 0.2, 0.4],  # 使用温度递增策略
+                    beam_size=3,
+                    best_of=1,
+                    temperature=[0.0],
                     # 更稳健：开启VAD与阈值，降低静音/噪音导致的重复
                     vad_filter=True,
                     vad_parameters={

@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
+from contextlib import asynccontextmanager
 import os
 import asyncio
 import logging
@@ -24,7 +25,13 @@ from translator import Translator
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="AI视频转录器", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    cleanup_task = asyncio.create_task(_cleanup_old_tasks())
+    yield
+    cleanup_task.cancel()
+
+app = FastAPI(title="内容分析 Agent", version="1.0.0", lifespan=lifespan)
 
 # CORS中间件配置
 app.add_middleware(
@@ -67,8 +74,12 @@ def load_tasks():
         pass
     return {}
 
-def save_tasks(tasks_data):
-    """保存任务状态"""
+def save_tasks(tasks_data, force: bool = False):
+    """保存任务状态。非强制模式下每3次调用才真正写入磁盘。"""
+    if not force:
+        save_tasks._counter = getattr(save_tasks, '_counter', 0) + 1
+        if save_tasks._counter % 3 != 0:
+            return
     try:
         with tasks_lock:
             with open(TASKS_FILE, 'w', encoding='utf-8') as f:
@@ -106,6 +117,28 @@ active_tasks = {}
 # 存储SSE连接，用于实时推送状态更新
 sse_connections = {}
 
+# 定期清理过期任务（>1小时）
+async def _cleanup_old_tasks():
+    while True:
+        await asyncio.sleep(600)  # 每10分钟
+        now = datetime.now()
+        expired = []
+        for tid, t in list(tasks.items()):
+            if t.get("status") in ("completed", "error"):
+                ts = t.get("completed_at") or t.get("created_at", "")
+                if ts:
+                    try:
+                        age = (now - datetime.fromisoformat(ts)).total_seconds()
+                        if age > 3600:
+                            expired.append(tid)
+                    except Exception:
+                        pass
+        for tid in expired:
+            del tasks[tid]
+        if expired:
+            save_tasks(tasks, force=True)
+            logger.info(f"清理 {len(expired)} 个过期任务")
+
 # 本地上传：允许的类型与大小上限（MB），可用环境变量 UPLOAD_MAX_MB 调整
 UPLOAD_ALLOWED_EXT = frozenset({".txt", ".mp3", ".mp4", ".m4a", ".wav", ".webm", ".mkv", ".ogg", ".flac"})
 UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "200"))
@@ -140,9 +173,6 @@ def _generate_analysis_html(title: str, markdown_content: str, language: str) ->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{safe_title} / 内容分析</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   *, *::before, *::after {{ margin: 0; padding: 0; box-sizing: border-box; }}
 
@@ -158,8 +188,8 @@ def _generate_analysis_html(title: str, markdown_content: str, language: str) ->
     --accent-bright: #f09860;
     --border: #2a2723;
     --shadow: 0 1px 3px rgba(0,0,0,0.4);
-    --font-body: 'Noto Serif SC', 'STSong', 'Songti SC', serif;
-    --font-mono: 'DM Mono', 'Cascadia Code', 'Consolas', monospace;
+    --font-body: 'Noto Serif SC', 'STSong', 'Songti SC', 'SimSun', 'NSimSun', 'Source Han Serif SC', serif;
+    --font-mono: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
   }}
 
   body {{
@@ -529,15 +559,21 @@ async def _run_post_extract_pipeline(
     if need_translation:
         logger.info(f"需要翻译: {detected_language} -> {summary_language}")
         tasks[task_id].update({
-            "progress": 70,
-            "message": "正在生成翻译...",
+            "progress": 75,
+            "message": "正在并行生成翻译和要点总结...",
         })
         save_tasks(tasks)
         await broadcast_task_update(task_id, tasks[task_id])
 
-        translation_content = await request_translator.translate_text(
-            script, summary_language, detected_language
+        translation_task = asyncio.create_task(
+            request_translator.translate_text(script, summary_language, detected_language)
         )
+        summary_task = asyncio.create_task(
+            request_summarizer.summarize(script, summary_language, video_title)
+        )
+        results = await asyncio.gather(translation_task, summary_task)
+        translation_content, summary = results[0], results[1]
+
         translation_with_title = f"# {video_title}\n\n{translation_content}\n\nsource: {source_ref}\n"
         translation_filename = f"translation_{safe_title}_{short_id}.md"
         translation_path = TEMP_DIR / translation_filename
@@ -548,15 +584,15 @@ async def _run_post_extract_pipeline(
             f"不需要翻译: detected_language={detected_language}, summary_language={summary_language}, "
             f"need_translation={need_translation}"
         )
+        tasks[task_id].update({
+            "progress": 80,
+            "message": "正在生成要点总结...",
+        })
+        save_tasks(tasks)
+        await broadcast_task_update(task_id, tasks[task_id])
 
-    tasks[task_id].update({
-        "progress": 80,
-        "message": "正在生成摘要...",
-    })
-    save_tasks(tasks)
-    await broadcast_task_update(task_id, tasks[task_id])
+        summary = await request_summarizer.summarize(script, summary_language, video_title)
 
-    summary = await request_summarizer.summarize(script, summary_language, video_title)
     summary_with_source = summary + f"\n\nsource: {source_ref}\n"
 
     script_filename = f"transcript_{task_id}.md"
@@ -587,6 +623,7 @@ async def _run_post_extract_pipeline(
     task_result = {
         "status": "completed",
         "progress": 100,
+        "completed_at": datetime.now().isoformat(),
         "message": "处理完成！",
         "video_title": video_title,
         "script": script_with_title,
@@ -608,8 +645,7 @@ async def _run_post_extract_pipeline(
         })
 
     tasks[task_id].update(task_result)
-    save_tasks(tasks)
-    logger.info(f"任务完成，准备广播最终状态: {task_id}")
+    save_tasks(tasks, force=True)
     await broadcast_task_update(task_id, tasks[task_id])
     logger.info(f"最终状态已广播: {task_id}")
 
@@ -643,6 +679,15 @@ async def list_models(
 
     if not effective_key:
         raise HTTPException(status_code=400, detail="API key is required")
+
+    # SSRF防护：仅允许 https，拒绝内网/本地地址
+    from urllib.parse import urlparse
+    parsed = urlparse(effective_url)
+    if parsed.scheme != "https":
+        raise HTTPException(status_code=400, detail="Only HTTPS URLs are allowed")
+    hostname = parsed.hostname or ""
+    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or hostname.startswith("10.") or hostname.startswith("172.16.") or hostname.startswith("192.168."):
+        raise HTTPException(status_code=400, detail="Internal addresses are not allowed")
 
     try:
         client = openai.OpenAI(api_key=effective_key, base_url=effective_url)
@@ -710,6 +755,7 @@ async def _enqueue_upload_job(
     tasks[task_id] = {
         "status": "processing",
         "progress": 0,
+        "created_at": datetime.now().isoformat(),
         "message": "开始处理上传文件...",
         "script": None,
         "summary": None,
@@ -762,7 +808,12 @@ async def process_video(
                 detail="Provide a video URL or upload a file",
             )
 
-        url = stripped
+        # 从粘贴文本中提取纯 URL（支持 b23.tv 等短链+标题文案）
+        url_match = re.search(r"(https?://[^\s]+)", stripped)
+        if url_match:
+            url = url_match.group(1)
+        else:
+            url = stripped
 
         # 检查是否已经在处理相同的URL
         if url in processing_urls:
@@ -833,12 +884,11 @@ async def process_video_task(
                 base_url=effective_url,
                 model=model_id or None,
             )
-            logger.info(f"使用前端提供的 API Key，base_url={effective_url}, model={model_id or 'default'}")
+            logger.info(f"使用前端API Key, model={model_id or 'default'}")
         else:
             request_summarizer = summarizer  # 全局实例（使用环境变量）
 
         subtitle_text, sub_title, sub_lang = await video_processor.fetch_subtitles(url, TEMP_DIR)
-
         if subtitle_text:
             # ── 快速路径：有字幕，跳过音频下载和 Whisper ──────────────────
             video_title = sub_title
@@ -904,19 +954,21 @@ async def process_video_task(
 
     except Exception as e:
         logger.error(f"任务 {task_id} 处理失败: {str(e)}")
-        # 从处理列表中移除URL
         processing_urls.discard(url)
-        
-        # 从活跃任务列表中移除
         if task_id in active_tasks:
             del active_tasks[task_id]
-            
+        # 清理可能遗留的音频文件
+        if audio_path:
+            try:
+                Path(audio_path).unlink(missing_ok=True)
+            except Exception:
+                pass
         tasks[task_id].update({
             "status": "error",
             "error": str(e),
             "message": f"处理失败: {str(e)}"
         })
-        save_tasks(tasks)
+        save_tasks(tasks, force=True)
         await broadcast_task_update(task_id, tasks[task_id])
 
 @app.post("/api/process-upload")
@@ -955,7 +1007,7 @@ async def process_upload_task(
                 model=model_id or None,
             )
             logger.info(
-                f"上传任务使用前端 API Key，base_url={effective_url}, model={model_id or 'default'}"
+                f"上传任务使用前端API Key, model={model_id or 'default'}"
             )
         else:
             request_summarizer = summarizer
@@ -1024,12 +1076,17 @@ async def process_upload_task(
         logger.error(f"任务 {task_id} 处理失败: {str(e)}")
         if task_id in active_tasks:
             del active_tasks[task_id]
+        if audio_path:
+            try:
+                Path(audio_path).unlink(missing_ok=True)
+            except Exception:
+                pass
         tasks[task_id].update({
             "status": "error",
             "error": str(e),
             "message": f"处理失败: {str(e)}",
         })
-        save_tasks(tasks)
+        save_tasks(tasks, force=True)
         await broadcast_task_update(task_id, tasks[task_id])
 
 
