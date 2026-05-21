@@ -17,7 +17,7 @@
 
 ### 依赖
 
-- Python 3.8+
+- Python 3.12+ (Windows 用户注意：项目路径含中文可能导致 pip 安装 `.dll`/`.pyd` 失败，建议将 venv 建在纯英文路径下)
 - FFmpeg（[下载](https://ffmpeg.org/download.html)）
 
 ### 安装
@@ -51,8 +51,8 @@ MODEL_NAME=deepseek-v4-pro
 双击 `启动服务.bat`，或：
 
 ```powershell
-$env:PYTHONIOENCODING='utf-8'
-python start.py
+venv\Scripts\activate
+python start.py --prod   # 生产模式，长视频 SSE 不断连
 ```
 
 浏览器打开 `http://localhost:8000`。

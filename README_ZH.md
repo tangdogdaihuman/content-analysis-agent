@@ -6,6 +6,8 @@
 
 一款开源的AI视频/播客转录和摘要工具：支持YouTube、Bilibili、抖音、Apple Podcasts、SoundCloud等30+平台链接，**也支持本地上传**（音视频或纯文本）。
 
+> 基于 [AI-Video-Transcriber](https://github.com/wendy7756/AI-Video-Transcriber) 深度改造。
+
 ![Interface](cn_video.png)
 
 </div>
@@ -32,94 +34,44 @@
 
 ### 安装方法
 
+#### 方法一：手动安装（推荐）
 
-#### 方法一：自动安装
-
-```bash
+```powershell
 # 克隆项目
-git clone https://github.com/wendy7756/AI-Video-Transcriber.git
-cd AI-Video-Transcriber
+git clone https://github.com/tangdogdaihuman/content-analysis-agent.git
+cd content-analysis-agent
 
-# 运行安装脚本
-chmod +x install.sh
-./install.sh
-```
-
-#### 方法二：Docker部署
-
-```bash
-# 克隆项目
-git clone https://github.com/wendy7756/AI-Video-Transcriber.git
-cd AI-Video-Transcriber
-
-# 使用Docker Compose（最简单）
-cp .env.example .env
-# 编辑.env文件设置服务端默认值（可选）
-docker-compose up -d
-
-# 或者直接使用Docker
-docker build -t ai-video-transcriber .
-docker run -p 8000:8000 --env-file .env ai-video-transcriber
-```
-
-镜像基于 **Python 3.12**（Debian Bookworm），构建时会先升级 `pip` / `setuptools` / `wheel`，再按 `requirements.txt` 安装，与本地在新版 Python 下创建虚拟环境后 `pip install -r requirements.txt` 的解析方式一致。
-
-#### 方法三：手动安装
-
-1. **安装Python依赖**（建议使用虚拟环境）
-```bash
-# 创建并启用虚拟环境（macOS推荐，避免 PEP 668 系统限制）
-python3 -m venv venv
-source venv/bin/activate
-python -m pip install --upgrade pip
+# 创建虚拟环境并安装依赖
+python -m venv venv
+venv\Scripts\activate      # Windows / . venv/bin/activate (macOS/Linux)
 pip install -r requirements.txt
 ```
 
-2. **安装FFmpeg**
+> Windows 用户注意：项目路径含中文可能导致 pip 安装 `.dll`/`.pyd` 文件失败（编码乱码报 PermissionError），建议将 venv 建在纯英文路径下。
+
+**安装 FFmpeg**：从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载并加入 PATH。
+
+#### 方法二：Docker 部署
+
 ```bash
-# macOS
-brew install ffmpeg
+git clone https://github.com/tangdogdaihuman/content-analysis-agent.git
+cd content-analysis-agent
 
-# Ubuntu/Debian
-sudo apt update && sudo apt install ffmpeg
-
-# CentOS/RHEL
-sudo yum install ffmpeg
+cp .env.example .env
+# 编辑.env文件设置 API Key（可选）
+docker-compose up -d
 ```
 
-3. **配置环境变量**（可选）
-```bash
-# 如需服务端默认值可设置，否则直接在页面 AI Settings 面板中配置
-export OPENAI_API_KEY="your_api_key_here"
-export OPENAI_BASE_URL="https://openrouter.ai/api/v1"  # 任意兼容端点
-```
+镜像基于 Python 3.12（Debian Bookworm）。
 
 ### 启动服务
 
-```bash
-python3 start.py
+```powershell
+venv\Scripts\activate      # Windows
+python start.py --prod     # 生产模式（推荐），长视频 SSE 不断连
 ```
 
-服务启动后，打开浏览器访问 `http://localhost:8000`
-
-#### 生产模式（推荐用于长视频）
-
-为了避免在处理长视频时SSE连接断开，建议使用生产模式启动（禁用热重载）：
-
-```bash
-python3 start.py --prod
-```
-
-这样可以在长时间任务（30-60+分钟）中保持SSE连接稳定。
-
-#### 使用显式环境变量启动（示例）
-
-```bash
-source venv/bin/activate
-export OPENAI_API_KEY=your_api_key_here         # 可选：服务端默认值
-# export OPENAI_BASE_URL=https://openrouter.ai/api/v1  # 可选：服务端默认值
-python3 start.py --prod
-```
+开发模式 `python start.py` 有热重载，但长视频 SSE 可能断连。浏览器打开 `http://localhost:8000`。
 
 ## 📖 使用指南
 
@@ -156,7 +108,7 @@ python3 start.py --prod
 
 ### 项目结构
 ```
-AI-Video-Transcriber/
+content-analysis-agent/
 ├── backend/                 # 后端代码
 │   ├── main.py             # FastAPI主应用
 │   ├── video_processor.py  # 视频处理模块
@@ -218,7 +170,7 @@ A: AI功能需要任意OpenAI兼容服务商的API Key（OpenAI、OpenRouter等�
 
 ### Q: 出现 500 报错/白屏，是代码问题吗？
 A: 多数情况下是环境配置问题，请按以下清单排查：
-- 是否已激活虚拟环境：`source venv/bin/activate`
+- 是否已激活虚拟环境：`venv\Scripts\activate` (Windows) / `source venv/bin/activate` (macOS/Linux)
 - 依赖是否安装在虚拟环境中：`pip install -r requirements.txt`
 - 是否在页面 **AI Settings** 面板中配置了API Key，或通过 `OPENAI_API_KEY` 环境变量设置
 - 是否已安装 FFmpeg：macOS `brew install ffmpeg` / Debian/Ubuntu `sudo apt install ffmpeg`
@@ -237,8 +189,8 @@ A: Docker提供了最简单的部署方式：
 **快速开始：**
 ```bash
 # 克隆和配置
-git clone https://github.com/wendy7756/AI-Video-Transcriber.git
-cd AI-Video-Transcriber
+git clone https://github.com/tangdogdaihuman/content-analysis-agent.git
+cd content-analysis-agent
 cp .env.example .env
 # 编辑.env文件设置服务端默认值（可选）
 
