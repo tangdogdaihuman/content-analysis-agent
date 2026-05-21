@@ -228,8 +228,9 @@ class VideoProcessor:
             raw_entries.append({"start": start_str, "end": end_str, "text": text})
 
         # ── 二次去重：过滤 YouTube「滚动追加」的中间状态 ──────────────────
-        # 若条目 i 的文本是条目 i+1 文本的起始子串，则条目 i 是中间状态，丢弃。
-        # 同时丢弃纯空白/单字符的噪音条目。
+        # 滚动追加特征：条目 i 文本是条目 i+1 文本的前缀子串，逐字追加。
+        # 保守策略：仅当文本不以句末标点结尾时才可能被标记为中间态。
+        # 完整句子即使被后续条目包含，也保留。
         if not raw_entries:
             return []
 
@@ -237,6 +238,10 @@ class VideoProcessor:
         for i, entry in enumerate(raw_entries):
             text = entry["text"]
             if len(text) < 2:
+                continue
+            # 如果文本以句末标点结尾，说明是完整句子，直接保留
+            if text.rstrip()[-1] in "。！？.!?":
+                entries.append(entry)
                 continue
             # 检查后续若干条是否以当前文本开头（滚动追加的特征）
             is_intermediate = False

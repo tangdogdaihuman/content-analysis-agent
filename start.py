@@ -8,11 +8,11 @@ import sys
 import subprocess
 from pathlib import Path
 
-# Fix Unicode output on Windows
-if sys.platform == "win32":
-    import io
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+# Force UTF-8 I/O on Windows to prevent garbled Chinese output on GBK consoles
+import os as _os
+_os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+_os.environ.setdefault("PYTHONUTF8", "1")
+del _os
 
 def check_dependencies():
     """检查依赖是否安装"""

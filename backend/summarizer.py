@@ -178,10 +178,13 @@ class Summarizer:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=4000,  # 对齐JS：优化/格式化阶段最大tokens≈4000
+                max_tokens=8192,
                 temperature=0.1
             )
-            optimized_text = strip_llm_artifacts(response.choices[0].message.content or "")
+            choice = response.choices[0]
+            if getattr(choice, 'finish_reason', None) == 'length':
+                logger.warning(f"单块优化被截断，输出可能不完整")
+            optimized_text = strip_llm_artifacts(choice.message.content or "")
             # 移除诸如 "# Transcript" / "## Transcript" 等标题
             optimized_text = self._remove_transcript_heading(optimized_text)
             enforced = self._enforce_paragraph_max_chars(optimized_text.strip(), max_chars=400)
@@ -743,11 +746,14 @@ HARD RULES:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=4096,
+            max_tokens=8192,
             temperature=0.25
         )
         
-        summary = strip_llm_artifacts(response.choices[0].message.content or "")
+        choice = response.choices[0]
+        if getattr(choice, 'finish_reason', None) == 'length':
+            logger.warning(f"摘要生成被截断，输出可能不完整")
+        summary = strip_llm_artifacts(choice.message.content or "")
 
         return self._format_summary_with_meta(summary, target_language, video_title)
 

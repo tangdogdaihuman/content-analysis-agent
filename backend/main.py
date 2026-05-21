@@ -525,7 +525,17 @@ async def _run_post_extract_pipeline(
     save_tasks(tasks)
     await broadcast_task_update(task_id, tasks[task_id])
 
-    script = await request_summarizer.optimize_transcript(raw_script)
+    if len(raw_script) > 8000:
+        logger.info(f"文本过长({len(raw_script)} chars)，跳过LLM优化，直接使用原始文本")
+        script = raw_script
+        tasks[task_id].update({
+            "progress": 60,
+            "message": "文本较长，已跳过优化，直接生成要点总结…",
+        })
+        save_tasks(tasks)
+        await broadcast_task_update(task_id, tasks[task_id])
+    else:
+        script = await request_summarizer.optimize_transcript(raw_script)
 
     script_with_title = f"# {video_title}\n\n{script}\n\nsource: {source_ref}\n"
 
