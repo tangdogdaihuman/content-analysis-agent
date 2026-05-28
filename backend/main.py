@@ -12,6 +12,7 @@ import aiofiles
 import uuid
 import json
 import re
+import threading
 import openai
 from datetime import datetime
 import markdown
@@ -59,8 +60,6 @@ summarizer = Summarizer()
 translator = Translator()
 
 # 存储任务状态 - 使用文件持久化
-import threading
-
 TASKS_FILE = TEMP_DIR / "tasks.json"
 tasks_lock = threading.Lock()
 
@@ -507,6 +506,7 @@ async def _run_post_extract_pipeline(
     short_id = task_id.replace("-", "")[:6]
     safe_title = _sanitize_title_for_filename(video_title)
 
+    raw_md_path = None
     try:
         raw_md_filename = f"raw_{safe_title}_{short_id}.md"
         raw_md_path = TEMP_DIR / raw_md_filename
@@ -735,29 +735,27 @@ async def _enqueue_upload_job(
     dest = TEMP_DIR / f"upload_{unique_stem}{ext}"
 
     total = 0
-    with open(dest, "wb") as out_f:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if total > max_bytes:
-                try:
-                    dest.unlink(missing_ok=True)
-                except Exception:
-                    pass
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"File exceeds limit of {UPLOAD_MAX_MB} MB",
-                )
-            out_f.write(chunk)
+    chunks = bytearray()
+    while True:
+        remain = max_bytes + 1 - total
+        if remain <= 0:
+            break
+        chunk = await file.read(min(1024 * 1024, remain))
+        if not chunk:
+            break
+        total += len(chunk)
+        chunks.extend(chunk)
 
+    if total > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File exceeds limit of {UPLOAD_MAX_MB} MB",
+        )
     if total == 0:
-        try:
-            dest.unlink(missing_ok=True)
-        except Exception:
-            pass
         raise HTTPException(status_code=400, detail="Empty file")
+
+    with open(dest, "wb") as out_f:
+        out_f.write(chunks)
 
     video_title = _sanitize_title_for_filename(Path(safe_name).stem) or "upload"
     source_label = f"upload:{safe_name}"

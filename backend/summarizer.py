@@ -41,8 +41,8 @@ class Summarizer:
 
         # 允许前端指定模型，env MODEL_NAME -> 硬编码后备
         env_model = os.getenv("MODEL_NAME", "")
-        self.fast_model     = model or env_model or "gpt-3.5-turbo"
-        self.advanced_model = model or env_model or "gpt-4o"
+        self.fast_model     = model or env_model or "deepseek-chat"
+        self.advanced_model = model or env_model or "deepseek-chat"
         
         # 支持的语言映射
         self.language_map = {
