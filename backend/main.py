@@ -692,12 +692,21 @@ async def list_models(
 
     # SSRF防护：仅允许 https，拒绝内网/本地地址
     from urllib.parse import urlparse
+    import ipaddress
     parsed = urlparse(effective_url)
     if parsed.scheme != "https":
         raise HTTPException(status_code=400, detail="Only HTTPS URLs are allowed")
-    hostname = parsed.hostname or ""
-    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1") or hostname.startswith("10.") or hostname.startswith("172.16.") or hostname.startswith("192.168."):
+    hostname = (parsed.hostname or "").lower()
+    # 先检查常见字符串（localhost / IPv6 loopback）
+    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
         raise HTTPException(status_code=400, detail="Internal addresses are not allowed")
+    # 再用 ipaddress 精确匹配整个私有/回环/链路本地地址段
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            raise HTTPException(status_code=400, detail="Internal addresses are not allowed")
+    except ValueError:
+        pass  # 不是 IP，是域名，放行
 
     try:
         client = openai.OpenAI(api_key=effective_key, base_url=effective_url)
@@ -735,27 +744,43 @@ async def _enqueue_upload_job(
     dest = TEMP_DIR / f"upload_{unique_stem}{ext}"
 
     total = 0
-    chunks = bytearray()
-    while True:
-        remain = max_bytes + 1 - total
-        if remain <= 0:
-            break
-        chunk = await file.read(min(1024 * 1024, remain))
-        if not chunk:
-            break
-        total += len(chunk)
-        chunks.extend(chunk)
+    # 先写临时文件，避免把整个文件缓冲在内存（上限 200MB 时可能 OOM）
+    tmp_dest = TEMP_DIR / f"_tmp_{unique_stem}{ext}"
+    try:
+        with open(tmp_dest, "wb") as out_f:
+            while True:
+                # 每次读 1MB，但最多读到 max_bytes（不再 +1，靠循环后判断）
+                chunk = await file.read(min(1024 * 1024, max_bytes + 1 - total))
+                if not chunk:
+                    break
+                total += len(chunk)
+                out_f.write(chunk)
+                if total > max_bytes:
+                    break  # 已超限，停止写入但继续读完（避免连接残留）
 
-    if total > max_bytes:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File exceeds limit of {UPLOAD_MAX_MB} MB",
-        )
-    if total == 0:
-        raise HTTPException(status_code=400, detail="Empty file")
+        if total > max_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File exceeds limit of {UPLOAD_MAX_MB} MB",
+            )
+        if total == 0:
+            raise HTTPException(status_code=400, detail="Empty file")
 
-    with open(dest, "wb") as out_f:
-        out_f.write(chunks)
+        # 大小合法，rename 到位
+        tmp_dest.rename(dest)
+    except HTTPException:
+        # 清理临时文件
+        try:
+            tmp_dest.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
+    except Exception:
+        try:
+            tmp_dest.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise
 
     video_title = _sanitize_title_for_filename(Path(safe_name).stem) or "upload"
     source_label = f"upload:{safe_name}"

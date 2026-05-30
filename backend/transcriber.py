@@ -119,14 +119,14 @@ class Transcriber:
         Returns:
             格式化的时间字符串
         """
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        seconds = int(seconds % 60)
-        
-        if hours > 0:
-            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+
+        if h > 0:
+            return f"{h:02d}:{m:02d}:{s:02d}"
         else:
-            return f"{minutes:02d}:{seconds:02d}"
+            return f"{m:02d}:{s:02d}"
     
     def get_supported_languages(self) -> list:
         """

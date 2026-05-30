@@ -278,8 +278,9 @@ class VideoProcessor:
             timing_line = lines[timing_idx]
             text_lines = lines[timing_idx + 1:]
 
+            # SRT 允许 MM:SS,mmm 或 HH:MM:SS,mmm 两种格式
             match = re.match(
-                r"(\d{1,2}:\d{2}:\d{2}[.,]\d+)\s*-->\s*(\d{1,2}:\d{2}:\d{2}[.,]\d+)",
+                r"((?:\d{1,2}:)?\d{2}:\d{2}[.,]\d+)\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}[.,]\d+)",
                 timing_line,
             )
             if not match:
