@@ -89,11 +89,22 @@ class Transcriber:
             transcript_lines.append("## Transcription Content")
             transcript_lines.append("")
 
-            # 拼接为连续文章（无时间戳）
-            for segment in segments:
-                text = segment.text.strip()
-                if text:
-                    transcript_lines.append(text)
+            # 拼接为连续文章：间距 >1.5 秒才分段
+            seg_list = list(segments)
+            if seg_list:
+                current_para = seg_list[0].text.strip()
+                for i in range(1, len(seg_list)):
+                    gap = seg_list[i].start - seg_list[i-1].end
+                    text = seg_list[i].text.strip()
+                    if gap > 1.5 and current_para and text:
+                        # 显著停顿，开始新段落
+                        transcript_lines.append(current_para)
+                        transcript_lines.append("")
+                        current_para = text
+                    elif text:
+                        current_para += text if current_para.endswith(('\n', '。', '！', '？', '.', '!', '?')) else ' ' + text
+                if current_para:
+                    transcript_lines.append(current_para)
 
             transcript_text = "\n\n".join(transcript_lines)
             logger.info("转录完成")

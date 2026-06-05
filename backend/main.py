@@ -693,7 +693,7 @@ async def _run_post_extract_pipeline(
         await f.write(summary_with_source)
 
     html_content = _generate_analysis_html(video_title, summary, summary_language)
-    html_filename = f"analysis_{task_id}.html"
+    html_filename = f"analysis_{safe_title}_{short_id}.html"
     html_path = TEMP_DIR / html_filename
     async with aiofiles.open(html_path, "w", encoding="utf-8") as f:
         await f.write(html_content)
