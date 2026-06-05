@@ -6,7 +6,8 @@
   双击文件夹里的 setup_runtime.bat，等待安装完成（仅一次，约 3 分钟）。
 
 【启动服务】
-  双击 启动.bat，看到 "Uvicorn running on http://0.0.0.0:8001" 即成功。
+  双击 启动.bat，自动更新依赖 → 启动服务 → 打开浏览器。
+  命令行窗口会自动关闭，无需手动操作。
 
   或者命令行：
     .\runtime\python.exe start.py --prod
