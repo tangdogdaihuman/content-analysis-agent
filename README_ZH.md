@@ -364,6 +364,19 @@ docker pull hello-world
 
 ---
 
+## 📋 更新日志
+
+### 2026.06 — v2.0 重大修复
+- **事件循环阻塞修复**：LLM API 调用全部改为异步 (`asyncio.to_thread`)，高并发不再卡死
+- **SSRF 防护**：yt-dlp 调用增加 URL 安全校验，拒绝内网地址 / file 协议
+- **XSS 防护**：前端引入 DOMPurify，Markdown 渲染输出全部净化
+- **竞态条件修复**：任务删除与异常处理增加状态守卫
+- **资源泄漏修复**：过期任务关联的输出文件自动清理
+- **原子写入**：tasks.json 使用 temp + rename 模式防数据损坏
+- **便携部署**：自带 Python 3.11 运行时，`setup_runtime.bat` 一键安装，`启动.bat` 即开即用
+
+---
+
 ## ⭐ Star History
 
 如果您觉得这个项目有帮助，请考虑给它一个星星！
