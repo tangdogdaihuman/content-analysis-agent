@@ -1,29 +1,29 @@
 ========================================
-  AI-Video-Transcriber 使用说明
+  内容分析 Agent — 使用说明
 ========================================
 
+【首次使用】
+  双击文件夹里的 setup_runtime.bat，等待安装完成（仅一次，约 3 分钟）。
+
 【启动服务】
-  打开 PowerShell，执行以下命令：
+  双击 启动.bat，看到 "Uvicorn running on http://0.0.0.0:8001" 即成功。
 
-    cd "C:\Users\admin\Desktop\内容分析agent"
-    $env:PYTHONIOENCODING='utf-8'
-    .\venv\Scripts\python.exe start.py
-
-  看到 "Uvicorn running on http://0.0.0.0:8000" 即启动成功。
+  或者命令行：
+    .\runtime\python.exe start.py --prod
 
 【停止服务】
-  在启动的那个 PowerShell 窗口按 Ctrl+C。
+  在启动窗口按 Ctrl+C。
 
 【使用步骤】
-  1. 浏览器打开 http://localhost:8000
+  1. 浏览器打开 http://localhost:8001
   2. 粘贴视频链接（支持 B站、YouTube、TikTok 等 30+ 平台）
   3. 选择摘要输出语言（中文/英文/日文等）
-  4. 点击 Transcribe 按钮
+  4. 点击「分析」按钮
   5. 等待处理完成，页面显示：
      - 优化后的原文转录
      - AI 摘要/总结
      - 翻译（源语言与摘要语言不同时自动生成）
-  6. 点击下载按钮保存 Markdown 文件
+  6. 点击下载按钮保存 Markdown / HTML 文件
 
 【支持的平台】
   B站、YouTube、TikTok、抖音、快手、优酷、爱奇艺、腾讯视频、
@@ -31,7 +31,7 @@
 
 【处理模式】
   - 字幕模式（绿色进度条）：平台有原生字幕时直接提取，秒级完成
-  - Whisper模式（琥珀色进度条）：无字幕时下载音频转录，较慢
+  - Whisper 模式（琥珀色进度条）：无字幕时下载音频转录，较慢
 
 【AI 模型配置】
   已默认配置 DeepSeek V4 API，直接可用。
@@ -43,7 +43,7 @@
 
 【常见问题】
   Q: 端口被占用？
-  A: 打开 .env 文件，把 PORT=8000 改成其他端口如 8001
+  A: 打开 .env 文件，把 PORT=8001 改成其他端口如 8002
 
   Q: API 调用失败？
   A: 检查网络是否能访问 https://api.deepseek.com
@@ -51,3 +51,6 @@
 
   Q: 视频下载失败？
   A: 某些平台可能需要代理/VPN 才能访问
+
+  Q: 搬了文件夹打不开？
+  A: 重新运行 setup_runtime.bat 即可恢复
