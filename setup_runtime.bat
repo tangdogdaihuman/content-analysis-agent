@@ -58,12 +58,12 @@ powershell -Command "Invoke-WebRequest -Uri 'https://bootstrap.pypa.io/get-pip.p
 runtime\python.exe "%TEMP%\get-pip.py" --no-warn-script-location >nul 2>&1
 echo [V] pip installed
 
-:: Install project dependencies
+:: Install project dependencies (--pre for yt-dlp nightly to fix Bilibili etc.)
 echo [*] Installing project dependencies (this may take a minute)...
-runtime\python.exe -m pip install -r requirements.txt --no-warn-script-location >nul 2>&1
+runtime\python.exe -m pip install --pre -r requirements.txt --no-warn-script-location >nul 2>&1
 if !errorlevel! neq 0 (
     echo [!] Some packages failed, retrying...
-    runtime\python.exe -m pip install -r requirements.txt --no-warn-script-location
+    runtime\python.exe -m pip install --pre -r requirements.txt --no-warn-script-location
 )
 echo [V] Dependencies installed
 

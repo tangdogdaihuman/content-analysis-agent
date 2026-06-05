@@ -1,7 +1,8 @@
 fastapi>=0.110.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.9
-yt-dlp>=2024.12.13
+# yt-dlp 每夜版（B站等国内平台 API 变动频繁，正式版可能滞后）
+yt-dlp>=2025.1.1
 faster-whisper>=1.1.0
 openai>=1.51.0
 pydantic>=2.7.0
