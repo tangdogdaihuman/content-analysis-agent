@@ -17,17 +17,15 @@
 
 ### 依赖
 
-- Python 3.12+ (Windows 用户注意：项目路径含中文可能导致 pip 安装 `.dll`/`.pyd` 失败，建议将 venv 建在纯英文路径下)
 - FFmpeg（[下载](https://ffmpeg.org/download.html)）
+- Python **不需要安装**——项目自带便携运行时
 
 ### 安装
 
 ```powershell
 git clone https://github.com/tangdogdaihuman/content-analysis-agent.git
 cd content-analysis-agent
-python -m venv venv
-.\venv\Scripts\activate
-pip install -r requirements.txt
+setup_runtime.bat          # 首次运行：自动下载 Python + 安装依赖（~360MB，仅一次）
 ```
 
 ### 配置
@@ -48,14 +46,13 @@ MODEL_NAME=deepseek-v4-pro
 
 ### 启动
 
-双击 `启动服务.bat`，或：
+双击 `启动.bat`，或：
 
 ```powershell
-venv\Scripts\activate
-python start.py --prod   # 生产模式，长视频 SSE 不断连
+.\runtime\python.exe start.py --prod   # 生产模式，长视频 SSE 不断连
 ```
 
-浏览器打开 `http://localhost:8000`。
+浏览器打开 `http://localhost:8001`。
 
 ## 使用
 

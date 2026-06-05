@@ -28,26 +28,28 @@
 
 ### 环境要求
 
-- Python 3.8+
 - FFmpeg（链接下载与本地上传音视频转码均需）
+- Python **无需单独安装**——项目自带便携运行时
 - 任意OpenAI兼容服务商的API Key（OpenAI、OpenRouter等）—— 直接在页面UI中配置，无需服务器环境变量
 
 ### 安装方法
 
-#### 方法一：手动安装（推荐）
+#### 方法一：便携安装（推荐）
 
 ```powershell
 # 克隆项目
 git clone https://github.com/tangdogdaihuman/content-analysis-agent.git
 cd content-analysis-agent
 
-# 创建虚拟环境并安装依赖
-python -m venv venv
-venv\Scripts\activate      # Windows / . venv/bin/activate (macOS/Linux)
-pip install -r requirements.txt
+# 首次运行：自动下载 Python + 安装全部依赖（~360MB，仅一次）
+setup_runtime.bat
+
+# 配置
+copy .env.example .env
+# 编辑 .env，填入 API Key
 ```
 
-> Windows 用户注意：项目路径含中文可能导致 pip 安装 `.dll`/`.pyd` 文件失败（编码乱码报 PermissionError），建议将 venv 建在纯英文路径下。
+> 项目自带 Python 运行时（`runtime/`），文件夹搬到任何电脑都能直接运行，无需装 Python、无需 venv。
 
 **安装 FFmpeg**：从 [ffmpeg.org](https://ffmpeg.org/download.html) 下载并加入 PATH。
 
@@ -66,12 +68,15 @@ docker-compose up -d
 
 ### 启动服务
 
+**便携版**：双击 `启动.bat`，或：
+
 ```powershell
-venv\Scripts\activate      # Windows
-python start.py --prod     # 生产模式（推荐），长视频 SSE 不断连
+.\runtime\python.exe start.py --prod     # 生产模式（推荐），长视频 SSE 不断连
 ```
 
-开发模式 `python start.py` 有热重载，但长视频 SSE 可能断连。浏览器打开 `http://localhost:8000`。
+**Docker**：`docker-compose up -d`
+
+浏览器打开 `http://localhost:8001`。
 
 ## 📖 使用指南
 
@@ -119,6 +124,7 @@ content-analysis-agent/
 ├── static/                 # 前端文件
 │   ├── index.html          # 主页面
 │   └── app.js              # 前端逻辑
+├── runtime/                # 便携 Python 运行时（setup_runtime.bat 生成）
 ├── temp/                   # 临时文件目录
 ├── Docker相关文件           # Docker部署
 │   ├── Dockerfile          # Docker镜像配置
@@ -126,6 +132,8 @@ content-analysis-agent/
 │   └── .dockerignore       # Docker忽略规则
 ├── .env.example        # 环境变量模板
 ├── requirements.txt    # Python依赖
+├── setup_runtime.bat   # 首次运行：一键安装便携环境
+├── 启动.bat             # 双击启动
 └── start.py           # 启动脚本
 
 ```
@@ -138,7 +146,7 @@ content-analysis-agent/
 |--------|------|--------|------|
 | `OPENAI_API_KEY` | API密钥（服务端默认值） | - | 否，可在UI中配置 |
 | `HOST` | 服务器地址 | `0.0.0.0` | 否 |
-| `PORT` | 服务器端口 | `8000` | 否 |
+| `PORT` | 服务器端口 | `8001` | 否 |
 | `WHISPER_MODEL_SIZE` | Whisper模型大小 | `base` | 否 |
 | `UPLOAD_MAX_MB` | 本地上传单文件大小上限（MB） | `200` | 否 |
 
@@ -170,11 +178,10 @@ A: AI功能需要任意OpenAI兼容服务商的API Key（OpenAI、OpenRouter等�
 
 ### Q: 出现 500 报错/白屏，是代码问题吗？
 A: 多数情况下是环境配置问题，请按以下清单排查：
-- 是否已激活虚拟环境：`venv\Scripts\activate` (Windows) / `source venv/bin/activate` (macOS/Linux)
-- 依赖是否安装在虚拟环境中：`pip install -r requirements.txt`
+- 首次使用是否已运行 `setup_runtime.bat`（下载 Python + 安装依赖）
 - 是否在页面 **AI Settings** 面板中配置了API Key，或通过 `OPENAI_API_KEY` 环境变量设置
 - 是否已安装 FFmpeg：macOS `brew install ffmpeg` / Debian/Ubuntu `sudo apt install ffmpeg`
-- 8000 端口是否被占用；如被占用请关闭旧进程或更换端口
+- 8001 端口是否被占用；如被占用请关闭旧进程或修改 `.env` 的 PORT
 
 ### Q: 如何处理长视频？
 A: 系统可以处理任意长度的视频，但处理时间会相应增加。建议对于超长视频使用较小的Whisper模型。
@@ -199,11 +206,11 @@ docker-compose up -d
 
 # 或手动构建运行
 docker build -t ai-video-transcriber .
-docker run -p 8000:8000 --env-file .env ai-video-transcriber
+docker run -p 8001:8000 --env-file .env ai-video-transcriber
 ```
 
 **常见Docker问题：**
-- **端口冲突**：如果8000端口被占用，可改用 `-p 8001:8000`
+- **端口冲突**：宿主 8000 端口被占用，可改用 `-p 8001:8000`
 - **权限拒绝**：确保Docker Desktop正在运行且有适当权限
 - **构建失败**：检查磁盘空间（需要约2GB空闲空间）和网络连接
 - **容器无法启动**：通过 `docker logs <容器ID>` 查看具体错误日志
