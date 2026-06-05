@@ -396,7 +396,8 @@ class VideoProcessor:
                 except Exception:
                     return 0.0
 
-            actual_duration = _probe_duration(audio_file)
+            # 仅当有预期时长时才探测（字幕路径不设置 expected_duration，跳过此开销）
+            actual_duration = _probe_duration(audio_file) if expected_duration else 0.0
 
             if expected_duration and actual_duration and abs(actual_duration - expected_duration) / expected_duration > 0.1:
                 logger.warning(

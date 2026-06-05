@@ -249,15 +249,18 @@ class Translator:
 只返回翻译结果，不要添加任何说明。"""
 
         try:
-            response = self.client.chat.completions.create(
-                model=self._translation_model,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
-                max_tokens=4000,
-                temperature=0.1
-            )
+            async with API_SEMAPHORE:
+                response = await asyncio.to_thread(
+                    lambda: self.client.chat.completions.create(
+                        model=self._translation_model,
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        max_tokens=4000,
+                        temperature=0.1
+                    )
+                )
 
             return strip_llm_artifacts(response.choices[0].message.content or "")
         except Exception as e:

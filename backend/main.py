@@ -963,7 +963,6 @@ async def process_video_task(
         })
         save_tasks(tasks)
         await broadcast_task_update(task_id, tasks[task_id])
-        await asyncio.sleep(0.1)
 
         request_summarizer = _get_request_summarizer(api_key, model_base_url, model_id)
 
