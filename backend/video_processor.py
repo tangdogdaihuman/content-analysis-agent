@@ -30,6 +30,7 @@ class VideoProcessor:
             'quiet': True,
             'no_warnings': True,
             'noplaylist': True,  # 强制只下载单个视频，不下载播放列表
+            'concurrent_fragment_downloads': 4,  # 并发下载分片
         }
 
     async def normalize_local_media_to_m4a(self, input_path: Path, output_dir: Path) -> str:
