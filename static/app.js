@@ -121,7 +121,13 @@ class VideoTranscriber {
     this._initElements();
     this._bindEvents();
     this._loadSettings();
-    this._switchLang('en');
+    // Restore saved language preference, default to Chinese
+    let savedLang = 'zh';
+    try {
+      const raw = localStorage.getItem('vt_settings');
+      if (raw) { const s = JSON.parse(raw); if (s.lang) savedLang = s.lang; }
+    } catch (_) {}
+    this._switchLang(savedLang);
   }
 
   /* ── Elements ─────────────────────────────────────────── */
@@ -285,6 +291,7 @@ class VideoTranscriber {
       baseUrl:  this.modelBaseUrl.value,
       apiKey:   this.apiKeyInput.value,
       model:    this.modelSelect.value,
+      lang:        this.currentLang,
       summaryLang: this.summaryLangSel.value,
     };
     try { localStorage.setItem('vt_settings', JSON.stringify(s)); } catch (_) {}
