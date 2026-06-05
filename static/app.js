@@ -277,6 +277,9 @@ class VideoTranscriber {
   }
 
   /* ── Settings persistence ─────────────────────────────── */
+  // NOTE: API key stored in localStorage for convenience.
+  // This is acceptable for a self-hosted tool but be aware
+  // other scripts on the same origin could read it.
   _saveSettings() {
     const s = {
       baseUrl:  this.modelBaseUrl.value,
@@ -501,24 +504,28 @@ class VideoTranscriber {
           this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
           this._showError(task.error || 'Processing error');
         }
-      } catch (_) {}
+      } catch (e) {
+        console.error('SSE message parse error:', e, ev.data?.substring(0, 200));
+      }
     };
 
     this.eventSource.onerror = async () => {
-      this._stopSSE();
+      this._stopSSE(); this._stopSP();
       try {
         if (this.currentTaskId) {
           const r = await fetch(`${this.apiBase}/task-status/${this.currentTaskId}`);
           if (r.ok) {
             const task = await r.json();
             if (task?.status === 'completed') {
-              this._stopSP(); this._setLoading(false); this._hideProgress();
+              this._setLoading(false); this._hideProgress();
               this._showResults(task.script, task.summary, task.video_title, task.translation, task.detected_language, task.summary_language);
               return;
             }
           }
         }
-      } catch (_) {}
+      } catch (e) {
+        console.error('SSE fallback poll failed:', e);
+      }
       this._showError(this.t('error_processing_failed') + 'SSE disconnected');
       this._setLoading(false);
     };
@@ -643,7 +650,7 @@ class VideoTranscriber {
   }
 
   _renderProgress(pct, msg) {
-    const p = Math.round(pct * 10) / 10;
+    const p = (typeof pct === 'number' && !isNaN(pct)) ? Math.round(pct * 10) / 10 : 0;
     this.progressStatus.textContent = `${p}%`;
     this.progressFill.style.width   = `${p}%`;
 
@@ -687,14 +694,14 @@ class VideoTranscriber {
   }
 
   _showResults(script, summary, videoTitle, translation, detectedLang, summaryLang) {
-    this.scriptContent.innerHTML  = script    ? marked.parse(script)      : '';
-    this.summaryContent.innerHTML = summary   ? marked.parse(summary)     : '';
+    this.scriptContent.innerHTML  = script    ? DOMPurify.sanitize(marked.parse(script))      : '';
+    this.summaryContent.innerHTML = summary   ? DOMPurify.sanitize(marked.parse(summary))     : '';
 
     const d = this._normLangTab(detectedLang);
     const s = this._normLangTab(summaryLang);
     const showTranslation = Boolean(translation) && d && s && d !== s;
     if (showTranslation) {
-      this.translationContent.innerHTML = marked.parse(translation);
+      this.translationContent.innerHTML = DOMPurify.sanitize(marked.parse(translation));
       this.translationTabBtn.style.display  = 'inline-block';
       this.dlTranslation.style.display      = 'inline-flex';
     } else {
@@ -763,9 +770,10 @@ class VideoTranscriber {
     this.errorMsg.textContent = msg;
     this.errorBanner.classList.add('show');
     this.errorBanner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    setTimeout(() => this._hideError(), 6000);
+    clearTimeout(this._errorTimer);
+    this._errorTimer = setTimeout(() => this._hideError(), 6000);
   }
-  _hideError() { this.errorBanner.classList.remove('show'); }
+  _hideError() { clearTimeout(this._errorTimer); this.errorBanner.classList.remove('show'); }
 
   _debounce(fn, ms) {
     let t;
@@ -774,10 +782,11 @@ class VideoTranscriber {
 }
 
 /* ── Boot ──────────────────────────────────────────────── */
+let _app;
 document.addEventListener('DOMContentLoaded', () => {
-  window.vt = new VideoTranscriber();
+  _app = new VideoTranscriber();
 });
 
 window.addEventListener('beforeunload', () => {
-  if (window.vt?.eventSource) window.vt._stopSSE();
+  if (_app?.eventSource) _app._stopSSE();
 });

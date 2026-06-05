@@ -69,20 +69,22 @@ def load_tasks():
         if TASKS_FILE.exists():
             with open(TASKS_FILE, 'r', encoding='utf-8') as f:
                 return json.load(f)
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"加载任务状态失败: {e}")
     return {}
 
 def save_tasks(tasks_data, force: bool = False):
-    """保存任务状态。非强制模式下每3次调用才真正写入磁盘。"""
+    """保存任务状态。非强制模式下每3次调用才真正写入磁盘。使用原子写入。"""
     if not force:
         save_tasks._counter = getattr(save_tasks, '_counter', 0) + 1
         if save_tasks._counter % 3 != 0:
             return
     try:
         with tasks_lock:
-            with open(TASKS_FILE, 'w', encoding='utf-8') as f:
+            tmp_path = TASKS_FILE.with_suffix(".tmp")
+            with open(tmp_path, 'w', encoding='utf-8') as f:
                 json.dump(tasks_data, f, ensure_ascii=False, indent=2)
+            tmp_path.replace(TASKS_FILE)  # atomic rename on same filesystem
     except Exception as e:
         logger.error(f"保存任务状态失败: {e}")
 
@@ -116,7 +118,7 @@ active_tasks = {}
 # 存储SSE连接，用于实时推送状态更新
 sse_connections = {}
 
-# 定期清理过期任务（>1小时）
+# 定期清理过期任务（>1小时）及其输出文件
 async def _cleanup_old_tasks():
     while True:
         await asyncio.sleep(600)  # 每10分钟
@@ -130,17 +132,74 @@ async def _cleanup_old_tasks():
                         age = (now - datetime.fromisoformat(ts)).total_seconds()
                         if age > 3600:
                             expired.append(tid)
+                    except (ValueError, TypeError) as e:
+                        logger.warning(f"解析任务时间戳失败 tid={tid}: {e}")
+        for tid in expired:
+            # 清理关联的输出文件
+            task = tasks.get(tid, {})
+            for key in ("script_path", "summary_path", "html_path", "translation_path"):
+                fp = task.get(key)
+                if fp:
+                    try:
+                        Path(fp).unlink(missing_ok=True)
                     except Exception:
                         pass
-        for tid in expired:
             del tasks[tid]
         if expired:
             save_tasks(tasks, force=True)
-            logger.info(f"清理 {len(expired)} 个过期任务")
+            logger.info(f"清理 {len(expired)} 个过期任务及文件")
 
 # 本地上传：允许的类型与大小上限（MB），可用环境变量 UPLOAD_MAX_MB 调整
 UPLOAD_ALLOWED_EXT = frozenset({".txt", ".mp3", ".mp4", ".m4a", ".wav", ".webm", ".mkv", ".ogg", ".flac"})
 UPLOAD_MAX_MB = int(os.getenv("UPLOAD_MAX_MB", "200"))
+
+
+def _validate_api_base_url(raw_url: str) -> str:
+    """SSRF 防护 + 格式校验，通过则返回规范化 URL（去掉尾部斜杠）。"""
+    from urllib.parse import urlparse
+    import ipaddress
+
+    url = (raw_url or "").strip().rstrip("/")
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+    parsed = urlparse(url)
+    if parsed.scheme != "https":
+        raise HTTPException(status_code=400, detail="Only HTTPS URLs are allowed")
+    hostname = (parsed.hostname or "").lower()
+    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+        raise HTTPException(status_code=400, detail="Internal addresses are not allowed")
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            raise HTTPException(status_code=400, detail="Internal addresses are not allowed")
+    except ValueError:
+        pass
+    return url
+
+
+def _validate_video_url(url: str) -> str:
+    """SSRF 防护：禁止 file:// 等非 HTTP 协议，拒绝内网地址。"""
+    from urllib.parse import urlparse
+    import ipaddress
+
+    url = (url or "").strip()
+    if not url:
+        raise HTTPException(status_code=400, detail="URL is required")
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="Only HTTP/HTTPS URLs are allowed")
+    hostname = (parsed.hostname or "").lower()
+    if not hostname:
+        raise HTTPException(status_code=400, detail="Invalid URL: no hostname")
+    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
+        raise HTTPException(status_code=400, detail="Internal addresses are not allowed")
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            raise HTTPException(status_code=400, detail="Internal addresses are not allowed")
+    except ValueError:
+        pass
+    return url
 
 
 def _sanitize_title_for_filename(title: str) -> str:
@@ -153,6 +212,15 @@ def _sanitize_title_for_filename(title: str) -> str:
     safe = re.sub(r"\s+", "_", safe).strip("._-")
     # 最长限制，避免过长文件名问题
     return safe[:80] or "untitled"
+
+
+def _get_request_summarizer(api_key: str, model_base_url: str, model_id: str) -> Summarizer:
+    """Create per-request Summarizer if frontend credentials provided, else use global instance."""
+    if api_key:
+        effective_url = model_base_url.rstrip("/") or None
+        logger.info(f"使用前端API Key, model={model_id or 'default'}")
+        return Summarizer(api_key=api_key, base_url=effective_url, model=model_id or None)
+    return summarizer
 
 
 def _generate_analysis_html(title: str, markdown_content: str, language: str) -> str:
@@ -510,8 +578,8 @@ async def _run_post_extract_pipeline(
     try:
         raw_md_filename = f"raw_{safe_title}_{short_id}.md"
         raw_md_path = TEMP_DIR / raw_md_filename
-        with open(raw_md_path, "w", encoding="utf-8") as f:
-            f.write((raw_script or "") + f"\n\nsource: {source_ref}\n")
+        async with aiofiles.open(raw_md_path, "w", encoding="utf-8") as f:
+            await f.write((raw_script or "") + f"\n\nsource: {source_ref}\n")
         tasks[task_id].update({"raw_script_file": raw_md_filename})
         save_tasks(tasks)
         await broadcast_task_update(task_id, tasks[task_id])
@@ -616,8 +684,8 @@ async def _run_post_extract_pipeline(
         if script_path.exists():
             script_path.rename(new_script_path)
             script_path = new_script_path
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"重命名转录文件失败: {e}")
 
     summary_filename = f"summary_{safe_title}_{short_id}.md"
     summary_path = TEMP_DIR / summary_filename
@@ -690,23 +758,8 @@ async def list_models(
     if not effective_key:
         raise HTTPException(status_code=400, detail="API key is required")
 
-    # SSRF防护：仅允许 https，拒绝内网/本地地址
-    from urllib.parse import urlparse
-    import ipaddress
-    parsed = urlparse(effective_url)
-    if parsed.scheme != "https":
-        raise HTTPException(status_code=400, detail="Only HTTPS URLs are allowed")
-    hostname = (parsed.hostname or "").lower()
-    # 先检查常见字符串（localhost / IPv6 loopback）
-    if hostname in ("localhost", "127.0.0.1", "0.0.0.0", "::1"):
-        raise HTTPException(status_code=400, detail="Internal addresses are not allowed")
-    # 再用 ipaddress 精确匹配整个私有/回环/链路本地地址段
-    try:
-        ip = ipaddress.ip_address(hostname)
-        if ip.is_private or ip.is_loopback or ip.is_link_local:
-            raise HTTPException(status_code=400, detail="Internal addresses are not allowed")
-    except ValueError:
-        pass  # 不是 IP，是域名，放行
+    # SSRF防护：复用共享校验函数
+    effective_url = _validate_api_base_url(effective_url)
 
     try:
         client = openai.OpenAI(api_key=effective_key, base_url=effective_url)
@@ -848,6 +901,9 @@ async def process_video(
         else:
             url = stripped
 
+        # SSRF 防护：拒绝内网/本地/非 HTTP 地址
+        url = _validate_video_url(url)
+
         # 检查是否已经在处理相同的URL
         if url in processing_urls:
             # 查找现有任务
@@ -909,17 +965,7 @@ async def process_video_task(
         await broadcast_task_update(task_id, tasks[task_id])
         await asyncio.sleep(0.1)
 
-        # 如果前端传入了 API 凭据，创建专用 Summarizer（线程安全，覆盖全局实例）
-        if api_key:
-            effective_url = model_base_url.rstrip("/") or None
-            request_summarizer = Summarizer(
-                api_key=api_key,
-                base_url=effective_url,
-                model=model_id or None,
-            )
-            logger.info(f"使用前端API Key, model={model_id or 'default'}")
-        else:
-            request_summarizer = summarizer  # 全局实例（使用环境变量）
+        request_summarizer = _get_request_summarizer(api_key, model_base_url, model_id)
 
         subtitle_text, sub_title, sub_lang = await video_processor.fetch_subtitles(url, TEMP_DIR)
         if subtitle_text:
@@ -996,6 +1042,8 @@ async def process_video_task(
                 Path(audio_path).unlink(missing_ok=True)
             except Exception:
                 pass
+        if task_id not in tasks:
+            return  # 任务已被 delete_task 清理
         tasks[task_id].update({
             "status": "error",
             "error": str(e),
@@ -1032,18 +1080,7 @@ async def process_upload_task(
     source_ref = f"upload:{original_name}"
     audio_path = None  # 初始化
     try:
-        if api_key:
-            effective_url = model_base_url.rstrip("/") or None
-            request_summarizer = Summarizer(
-                api_key=api_key,
-                base_url=effective_url,
-                model=model_id or None,
-            )
-            logger.info(
-                f"上传任务使用前端API Key, model={model_id or 'default'}"
-            )
-        else:
-            request_summarizer = summarizer
+        request_summarizer = _get_request_summarizer(api_key, model_base_url, model_id)
 
         if ext_lower == ".txt":
             tasks[task_id].update({
@@ -1053,7 +1090,7 @@ async def process_upload_task(
             save_tasks(tasks)
             await broadcast_task_update(task_id, tasks[task_id])
 
-            body = saved_path.read_text(encoding="utf-8", errors="replace")
+            body = await asyncio.to_thread(saved_path.read_text, encoding="utf-8", errors="replace")
             if not body.strip():
                 raise Exception("文本文件为空")
             transcriber.last_detected_language = None
@@ -1114,6 +1151,8 @@ async def process_upload_task(
                 Path(audio_path).unlink(missing_ok=True)
             except Exception:
                 pass
+        if task_id not in tasks:
+            return  # 任务已被 delete_task 清理
         tasks[task_id].update({
             "status": "error",
             "error": str(e),
@@ -1244,15 +1283,10 @@ async def delete_task(task_id: str):
 
 @app.get("/api/tasks/active")
 async def get_active_tasks():
-    """
-    获取当前活跃任务列表（用于调试）
-    """
-    active_count = len(active_tasks)
-    processing_count = len(processing_urls)
+    """获取当前活跃任务统计（用于监控）"""
     return {
-        "active_tasks": active_count,
-        "processing_urls": processing_count,
-        "task_ids": list(active_tasks.keys())
+        "active_tasks": len(active_tasks),
+        "processing_urls": len(processing_urls),
     }
 
 if __name__ == "__main__":

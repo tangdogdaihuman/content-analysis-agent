@@ -406,7 +406,7 @@ class VideoProcessor:
                     fixed_path = str(output_dir / f"audio_{unique_id}_fixed.m4a")
                     subprocess.check_call([
                         "ffmpeg", "-y", "-i", audio_file, "-vn", "-c:a", "aac",
-                        "-b:a", "160k", "-movflags", "+faststart", fixed_path
+                        "-b:a", "192k", "-movflags", "+faststart", fixed_path
                     ])
                     audio_file = fixed_path
                     actual_duration2 = _probe_duration(audio_file)
@@ -420,28 +420,3 @@ class VideoProcessor:
         except Exception as e:
             logger.error(f"下载视频失败: {str(e)}")
             raise Exception(f"下载视频失败: {str(e)}")
-    
-    def get_video_info(self, url: str) -> dict:
-        """
-        获取视频信息
-        
-        Args:
-            url: 视频链接
-            
-        Returns:
-            视频信息字典
-        """
-        try:
-            with yt_dlp.YoutubeDL({'quiet': True}) as ydl:
-                info = ydl.extract_info(url, download=False)
-                return {
-                    'title': info.get('title', ''),
-                    'duration': info.get('duration', 0),
-                    'uploader': info.get('uploader', ''),
-                    'upload_date': info.get('upload_date', ''),
-                    'description': info.get('description', ''),
-                    'view_count': info.get('view_count', 0),
-                }
-        except Exception as e:
-            logger.error(f"获取视频信息失败: {str(e)}")
-            raise Exception(f"获取视频信息失败: {str(e)}")
