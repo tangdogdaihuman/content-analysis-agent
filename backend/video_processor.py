@@ -313,7 +313,7 @@ class VideoProcessor:
         return time_str
 
     def _format_subtitle_entries(self, entries: list, language: str) -> str:
-        """将字幕条目格式化为与 Whisper 输出兼容的 Markdown，供下游管道直接使用。"""
+        """将字幕条目格式化为连续文章（无时间戳），供下游管道直接使用。"""
         lines = [
             "# Video Transcription",
             "",
@@ -324,11 +324,10 @@ class VideoProcessor:
             "",
         ]
         for entry in entries:
-            lines.append(f"**[{entry['start']} - {entry['end']}]**")
-            lines.append("")
-            lines.append(entry["text"])
-            lines.append("")
-        return "\n".join(lines)
+            text = entry.get("text", "").strip()
+            if text:
+                lines.append(text)
+        return "\n\n".join(lines)
 
     async def download_and_convert(
         self,

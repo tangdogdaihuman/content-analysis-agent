@@ -88,19 +88,14 @@ class Transcriber:
             transcript_lines.append("")
             transcript_lines.append("## Transcription Content")
             transcript_lines.append("")
-            
-            # 添加时间戳和文本
+
+            # 拼接为连续文章（无时间戳）
             for segment in segments:
-                start_time = self._format_time(segment.start)
-                end_time = self._format_time(segment.end)
                 text = segment.text.strip()
-                
-                transcript_lines.append(f"**[{start_time} - {end_time}]**")
-                transcript_lines.append("")
-                transcript_lines.append(text)
-                transcript_lines.append("")
-            
-            transcript_text = "\n".join(transcript_lines)
+                if text:
+                    transcript_lines.append(text)
+
+            transcript_text = "\n\n".join(transcript_lines)
             logger.info("转录完成")
             
             return transcript_text

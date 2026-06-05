@@ -792,6 +792,14 @@ class VideoTranscriber {
 let _app;
 document.addEventListener('DOMContentLoaded', () => {
   _app = new VideoTranscriber();
+  // Scroll-to-top button
+  const btn = document.getElementById('scrollTopBtn');
+  if (btn) {
+    window.addEventListener('scroll', () => {
+      btn.classList.toggle('show', window.scrollY > 300);
+    });
+    btn.addEventListener('click', () => window.scrollTo({ top: 0, behavior: 'smooth' }));
+  }
 });
 
 window.addEventListener('beforeunload', () => {

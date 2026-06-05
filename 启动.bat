@@ -25,5 +25,5 @@ curl -s -o NUL http://localhost:8001/ 2>nul
 if errorlevel 1 goto waitloop
 
 start http://localhost:8001
-echo [OK] Browser opened. You can close this window.
-pause
+timeout /t 2 /nobreak >nul
+exit
