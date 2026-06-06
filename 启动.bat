@@ -9,9 +9,10 @@ for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8001.*LISTENING" 2^>nul') d
     taskkill /f /pid %%a >nul 2>&1
 )
 
-:: Check for yt-dlp update (Bilibili etc. break often without latest)
+:: Check for yt-dlp update (5s timeout, skip if network unavailable)
 echo [*] Checking for yt-dlp updates...
-runtime\python.exe -m pip install --pre --upgrade yt-dlp --no-warn-script-location --quiet
+runtime\python.exe -m pip install --pre --upgrade yt-dlp --no-warn-script-location --quiet --timeout 5 --retries 1 2>nul
+if errorlevel 1 echo [!] Update check skipped (network unavailable)
 
 :: Start server
 echo [*] Starting server...
