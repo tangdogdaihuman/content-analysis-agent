@@ -20,6 +20,9 @@ else:
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
 os.environ.setdefault("PYTHONUTF8", "1")
 
+# Skip yt-dlp auto update check on import (saves 3-10s at startup)
+os.environ["YTDLP_NO_UPDATE"] = "1"
+
 
 def _p(msg: str) -> None:
     """Print safely regardless of console encoding."""

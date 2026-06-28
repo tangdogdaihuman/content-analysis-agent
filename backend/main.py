@@ -1,9 +1,13 @@
+import os
+
+# Must be set before yt-dlp import (saves 3-10s startup)
+os.environ.setdefault("YTDLP_NO_UPDATE", "1")
+
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from contextlib import asynccontextmanager
-import os
 import asyncio
 import logging
 from pathlib import Path
@@ -952,9 +956,8 @@ async def process_video_task(
     """
     异步处理视频任务
     """
+    audio_path = None  # 初始化，字幕路径下无音频文件
     try:
-        audio_path = None  # 初始化，字幕路径下无音频文件
-
         # ── 阶段一：优先尝试获取平台字幕（快速路径） ──────────────────────
         tasks[task_id].update({
             "status": "processing",
@@ -993,6 +996,10 @@ async def process_video_task(
                 url, TEMP_DIR, prefetched_title=sub_title or None
             )
 
+            # 检查是否在下载期间被取消
+            if task_id not in active_tasks:
+                raise asyncio.CancelledError("任务已被用户取消")
+
             tasks[task_id].update({
                 "progress": 35,
                 "message": "音频下载完成，准备转录..."
@@ -1008,6 +1015,10 @@ async def process_video_task(
             await broadcast_task_update(task_id, tasks[task_id])
 
             raw_script = await transcriber.transcribe(audio_path)
+
+            # 检查是否在转录期间被取消
+            if task_id not in active_tasks:
+                raise asyncio.CancelledError("任务已被用户取消")
 
         await _run_post_extract_pipeline(
             task_id=task_id,
@@ -1029,6 +1040,26 @@ async def process_video_task(
                 logger.info(f"已删除音频文件: {audio_path}")
             except Exception as e:
                 logger.warning(f"删除音频文件失败: {e}")
+
+    except asyncio.CancelledError:
+        logger.info(f"任务 {task_id} 被用户取消")
+        processing_urls.discard(url)
+        if task_id in active_tasks:
+            del active_tasks[task_id]
+        if audio_path:
+            try:
+                Path(audio_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+        if task_id not in tasks:
+            return
+        tasks[task_id].update({
+            "status": "cancelled",
+            "progress": 100,
+            "message": "任务已取消",
+        })
+        save_tasks(tasks, force=True)
+        await broadcast_task_update(task_id, tasks[task_id])
 
     except Exception as e:
         logger.error(f"任务 {task_id} 处理失败: {str(e)}")
@@ -1104,6 +1135,9 @@ async def process_upload_task(
 
             audio_path = await video_processor.normalize_local_media_to_m4a(saved_path, TEMP_DIR)
 
+            if task_id not in active_tasks:
+                raise asyncio.CancelledError("任务已被用户取消")
+
             tasks[task_id].update({
                 "progress": 35,
                 "message": "音频准备完成，准备转录...",
@@ -1119,6 +1153,9 @@ async def process_upload_task(
             await broadcast_task_update(task_id, tasks[task_id])
 
             raw_script = await transcriber.transcribe(audio_path)
+
+            if task_id not in active_tasks:
+                raise asyncio.CancelledError("任务已被用户取消")
 
         await _run_post_extract_pipeline(
             task_id=task_id,
@@ -1140,6 +1177,25 @@ async def process_upload_task(
                 logger.info(f"已删除音频文件: {audio_path}")
             except Exception as e:
                 logger.warning(f"删除音频文件失败: {e}")
+
+    except asyncio.CancelledError:
+        logger.info(f"上传任务 {task_id} 被用户取消")
+        if task_id in active_tasks:
+            del active_tasks[task_id]
+        if audio_path:
+            try:
+                Path(audio_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+        if task_id not in tasks:
+            return
+        tasks[task_id].update({
+            "status": "cancelled",
+            "progress": 100,
+            "message": "任务已取消",
+        })
+        save_tasks(tasks, force=True)
+        await broadcast_task_update(task_id, tasks[task_id])
 
     except Exception as e:
         logger.error(f"任务 {task_id} 处理失败: {str(e)}")
@@ -1200,9 +1256,9 @@ async def task_stream(task_id: str):
                     data = await asyncio.wait_for(queue.get(), timeout=30.0)
                     yield f"data: {data}\n\n"
                     
-                    # 如果任务完成或失败，结束流
+                    # 如果任务完成、失败或取消，结束流
                     task_data = json.loads(data)
-                    if task_data.get("status") in ["completed", "error"]:
+                    if task_data.get("status") in ["completed", "error", "cancelled"]:
                         break
                         
                 except asyncio.TimeoutError:
@@ -1262,7 +1318,7 @@ async def delete_task(task_id: str):
     """
     if task_id not in tasks:
         raise HTTPException(status_code=404, detail="任务不存在")
-    
+
     # 如果任务还在运行，先取消它
     if task_id in active_tasks:
         task = active_tasks[task_id]
@@ -1270,14 +1326,26 @@ async def delete_task(task_id: str):
             task.cancel()
             logger.info(f"任务 {task_id} 已被取消")
         del active_tasks[task_id]
-    
+
     # 从处理URL列表中移除
     task_url = tasks[task_id].get("url")
     if task_url:
         processing_urls.discard(task_url)
-    
-    # 删除任务记录
-    del tasks[task_id]
+
+    # 广播取消状态给前端，然后再删除记录
+    tasks[task_id].update({
+        "status": "cancelled",
+        "progress": 100,
+        "message": "任务已取消",
+    })
+    save_tasks(tasks, force=True)
+    await broadcast_task_update(task_id, tasks[task_id])
+
+    # 延迟删除，给 SSE 流一点时间推送 cancelled 状态
+    await asyncio.sleep(0.3)
+    if task_id in tasks:
+        del tasks[task_id]
+        save_tasks(tasks, force=True)
     return {"message": "任务已取消并删除"}
 
 @app.get("/api/tasks/active")

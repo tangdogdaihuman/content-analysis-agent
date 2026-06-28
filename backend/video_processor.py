@@ -15,6 +15,19 @@ class VideoProcessor:
     """视频处理器，使用yt-dlp下载和转换视频"""
     
     def __init__(self):
+        # BiliBili 等站点需要的通用请求头，避免 412 Precondition Failed
+        # 关键：BiliBili API 现已强制校验 Origin 头，缺失则返回 412
+        _http_headers = {
+            'User-Agent': (
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                'AppleWebKit/537.36 (KHTML, like Gecko) '
+                'Chrome/131.0.0.0 Safari/537.36'
+            ),
+            'Referer': 'https://www.bilibili.com',
+            'Origin': 'https://www.bilibili.com',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+        }
         self.ydl_opts = {
             'format': 'bestaudio/best',  # 优先下载最佳音频源
             'outtmpl': '%(title)s.%(ext)s',
@@ -31,7 +44,28 @@ class VideoProcessor:
             'no_warnings': True,
             'noplaylist': True,  # 强制只下载单个视频，不下载播放列表
             'concurrent_fragment_downloads': 4,  # 并发下载分片
+            'http_headers': _http_headers,
         }
+        # 可选 cookies 来源（二选一，文件优先）：
+        #   COOKIES_FILE=/path/to/cookies.txt        手动导出的 cookies 文件
+        #   COOKIES_FROM_BROWSER=chrome|edge|firefox  自动从浏览器读取（免操作）
+        self._cookies_source = None  # 实际生效的 cookies 配置
+        _cookies = os.getenv("COOKIES_FILE", "").strip()
+        if _cookies:
+            # 相对路径以项目根目录为基准（因为 uvicorn 的 CWD 可能在 backend/）
+            _cookie_path = Path(_cookies)
+            if not _cookie_path.is_absolute():
+                _cookie_path = (Path(__file__).parent.parent / _cookie_path).resolve()
+            if _cookie_path.is_file():
+                self.ydl_opts['cookiefile'] = str(_cookie_path)
+                self._cookies_source = 'file'
+                logger.info(f"使用 cookies 文件: {_cookie_path}")
+        else:
+            _browser = os.getenv("COOKIES_FROM_BROWSER", "").strip().lower()
+            if _browser in ('chrome', 'edge', 'firefox', 'brave', 'opera', 'chromium'):
+                self.ydl_opts['cookiesfrombrowser'] = (_browser,)
+                self._cookies_source = 'browser'
+                logger.info(f"从浏览器读取 cookies: {_browser}（浏览器需关闭才能读取）")
 
     async def normalize_local_media_to_m4a(self, input_path: Path, output_dir: Path) -> str:
         """
@@ -59,6 +93,26 @@ class VideoProcessor:
         await asyncio.to_thread(_run)
         return str(out_path)
     
+    def _is_cookie_lock_error(self, exc: Exception) -> bool:
+        """判断是否为浏览器 cookie 数据库被锁的错误。"""
+        msg = str(exc).lower()
+        return ('cookie' in msg and ('copy' in msg or 'lock' in msg or 'database' in msg or '7271' in msg))
+
+    def _strip_cookies(self, opts: dict) -> dict:
+        """返回去掉 cookie 相关键的新 opts 副本。"""
+        return {k: v for k, v in opts.items() if k not in ('cookiefile', 'cookiesfrombrowser')}
+
+    def _disable_cookies(self):
+        """首次遇到 cookie 锁错误时，禁用后续 cookie 尝试并记录一次警告。"""
+        if self._cookies_source:
+            logger.warning(
+                "浏览器 cookie 数据库被锁定（Edge/Chrome 正在运行），"
+                "BiliBili 字幕将不可用。关闭浏览器后重启服务即可。"
+            )
+            self._cookies_source = None
+            for key in ('cookiefile', 'cookiesfrombrowser'):
+                self.ydl_opts.pop(key, None)
+
     async def fetch_subtitles(self, url: str, output_dir: Path) -> tuple[Optional[str], Optional[str], Optional[str]]:
         """
         先尝试从平台获取字幕文本，比下载音频快得多。
@@ -74,67 +128,83 @@ class VideoProcessor:
         sub_dir = output_dir / f"subs_{unique_id}"
 
         try:
-            # 1. 快速探测：获取视频信息和字幕可用性，不下载任何内容
-            check_opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
-            with yt_dlp.YoutubeDL(check_opts) as ydl:
-                info = await asyncio.to_thread(ydl.extract_info, url, False)
+            # 1. 获取视频标题（轻量探测，不拉字幕）
+            check_opts = {
+                "quiet": True, "no_warnings": True, "noplaylist": True,
+                "http_headers": self.ydl_opts.get("http_headers", {}),
+            }
+            if "cookiefile" in self.ydl_opts:
+                check_opts["cookiefile"] = self.ydl_opts["cookiefile"]
+            if "cookiesfrombrowser" in self.ydl_opts:
+                check_opts["cookiesfrombrowser"] = self.ydl_opts["cookiesfrombrowser"]
+            try:
+                with yt_dlp.YoutubeDL(check_opts) as ydl:
+                    info = await asyncio.to_thread(ydl.extract_info, url, False)
+            except Exception as e:
+                if self._is_cookie_lock_error(e):
+                    self._disable_cookies()
+                    with yt_dlp.YoutubeDL(self._strip_cookies(check_opts)) as ydl:
+                        info = await asyncio.to_thread(ydl.extract_info, url, False)
+                else:
+                    raise
 
             video_title = info.get("title", "unknown")
-            manual_subs: dict = info.get("subtitles") or {}
-            auto_caps: dict = info.get("automatic_captions") or {}
 
-            # 过滤掉 live_chat 等非语音轨道
-            manual_langs = [k for k in manual_subs if not k.startswith("live_chat")]
-            auto_langs = [k for k in auto_caps if not k.startswith("live_chat")]
-
-            if not manual_langs and not auto_langs:
-                logger.info(f"视频无可用字幕: {url}")
-                return None, video_title, None
-
-            # 优先手动字幕，其次自动字幕
-            prefer_manual = bool(manual_langs)
-            candidate_langs = manual_langs if prefer_manual else auto_langs
-
-            # 按优先级选语言：英语 > 简体中文 > 繁体中文 > 其他（取第一个）
-            _priority = ["en", "en-orig", "zh-Hans", "zh-Hant", "zh", "ja", "ko", "fr", "de", "es"]
-            prefer_lang = next(
-                (lang for lang in _priority if lang in candidate_langs),
-                candidate_langs[0],
-            )
-            logger.info(
-                f"发现{'手动' if prefer_manual else '自动'}字幕，选用语言: {prefer_lang}"
-                f"（候选 {len(candidate_langs)} 种）"
-            )
-
-            # 2. 仅下载字幕，跳过音视频
+            # 2. 直接尝试下载字幕（extract_info 返回的字幕信息不可靠，BiliBili
+            #    等站点的字幕 API 只在 writesubtitles/writeautomaticsub 开启时才调用）
             sub_dir.mkdir(exist_ok=True)
             dl_opts = {
-                "writesubtitles": prefer_manual,
-                "writeautomaticsub": not prefer_manual,
+                "writesubtitles": True,
+                "writeautomaticsub": True,
                 "subtitlesformat": "vtt/srt/best",
-                "subtitleslangs": [prefer_lang],
+                "subtitleslangs": ["all"],
                 "skip_download": True,
                 "outtmpl": str(sub_dir / "sub.%(ext)s"),
                 "quiet": True,
                 "no_warnings": True,
                 "noplaylist": True,
+                "http_headers": self.ydl_opts.get("http_headers", {}),
             }
-            with yt_dlp.YoutubeDL(dl_opts) as ydl:
-                await asyncio.to_thread(ydl.download, [url])
+            if "cookiefile" in self.ydl_opts:
+                dl_opts["cookiefile"] = self.ydl_opts["cookiefile"]
+            if "cookiesfrombrowser" in self.ydl_opts:
+                dl_opts["cookiesfrombrowser"] = self.ydl_opts["cookiesfrombrowser"]
+            try:
+                with yt_dlp.YoutubeDL(dl_opts) as ydl:
+                    await asyncio.to_thread(ydl.download, [url])
+            except Exception as e:
+                if self._is_cookie_lock_error(e):
+                    self._disable_cookies()
+                    with yt_dlp.YoutubeDL(self._strip_cookies(dl_opts)) as ydl:
+                        await asyncio.to_thread(ydl.download, [url])
+                else:
+                    raise
 
-            # 3. 查找下载的字幕文件
-            sub_files = list(sub_dir.glob("*.vtt")) + list(sub_dir.glob("*.srt"))
+            # 3. 查找下载的字幕文件（排除弹幕 xml）
+            sub_files = [f for f in list(sub_dir.glob("*.vtt")) + list(sub_dir.glob("*.srt"))
+                         if "danmaku" not in f.name.lower()]
             if not sub_files:
-                logger.warning("字幕下载后未找到文件，回退音频模式")
+                logger.info(f"视频无可用字幕: {url}")
                 return None, video_title, None
 
-            sub_file = sub_files[0]
+            # 4. 按语言优先级选最佳字幕
+            _lang_priority = ["zh-Hans", "zh-CN", "zh", "zh-Hant", "zh-HK", "en", "en-US", "ja", "ko"]
+            sub_file = None
+            for lang in _lang_priority:
+                for f in sub_files:
+                    if lang.lower() in f.stem.lower():
+                        sub_file = f
+                        break
+                if sub_file:
+                    break
+            if not sub_file:
+                sub_file = sub_files[0]  # fallback
 
-            # 从文件名提取语言代码 (e.g. sub.en.vtt → en)
+            # 从文件名提取语言代码
             stem_parts = sub_file.stem.split(".")
-            file_lang = stem_parts[-1] if len(stem_parts) > 1 else prefer_lang
+            file_lang = stem_parts[-1] if len(stem_parts) > 1 else "unknown"
 
-            # 4. 解析字幕文件
+            # 5. 解析字幕文件
             if sub_file.suffix == ".vtt":
                 entries = self._parse_vtt(str(sub_file))
             else:
@@ -144,7 +214,7 @@ class VideoProcessor:
                 logger.warning("字幕解析结果为空，回退音频模式")
                 return None, video_title, None
 
-            # 5. 格式化为与 Whisper 输出兼容的 Markdown
+            # 6. 格式化为与 Whisper 输出兼容的 Markdown
             formatted = self._format_subtitle_entries(entries, file_lang)
             logger.info(f"字幕获取成功: lang={file_lang}, {len(entries)} 条目")
             return formatted, video_title, file_lang
@@ -353,25 +423,30 @@ class VideoProcessor:
             # 更新yt-dlp选项
             ydl_opts = self.ydl_opts.copy()
             ydl_opts['outtmpl'] = output_template
-            
+
             logger.info(f"开始下载视频: {url}")
-            
+
             import asyncio
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                if prefetched_title:
-                    # 标题和时长已在 fetch_subtitles 中获取，直接下载，跳过重复探测
-                    video_title = prefetched_title
-                    expected_duration = 0
-                    logger.info(f"复用预取标题，跳过 extract_info: {video_title}")
-                else:
-                    # 获取视频信息（放到线程池避免阻塞事件循环）
-                    info = await asyncio.to_thread(ydl.extract_info, url, False)
-                    video_title = info.get('title', 'unknown')
-                    expected_duration = info.get('duration') or 0
-                    logger.info(f"视频标题: {video_title}")
-                
-                # 下载视频（放到线程池避免阻塞事件循环）
-                await asyncio.to_thread(ydl.download, [url])
+
+            def _do_extract_and_download(opts):
+                """同步执行 yt-dlp 提取和下载，遇 cookie 锁错误自动重试。"""
+                try:
+                    with yt_dlp.YoutubeDL(opts) as ydl:
+                        info = None if prefetched_title else ydl.extract_info(url, False)
+                        ydl.download([url])
+                        return (
+                            prefetched_title or (info.get('title', 'unknown') if info else 'unknown'),
+                            (info.get('duration') or 0) if info else 0,
+                        )
+                except Exception as e:
+                    if self._is_cookie_lock_error(e):
+                        self._disable_cookies()
+                        return _do_extract_and_download(self._strip_cookies(opts))
+                    raise
+
+            video_title, expected_duration = await asyncio.to_thread(
+                _do_extract_and_download, ydl_opts
+            )
             
             # 查找生成的m4a文件
             audio_file = str(output_dir / f"audio_{unique_id}.m4a")

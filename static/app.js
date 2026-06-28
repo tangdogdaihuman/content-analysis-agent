@@ -65,6 +65,9 @@ class VideoTranscriber {
         error_upload_type:       'Unsupported file type',
         error_upload_empty:      'File is empty',
         error_upload_size:       (mb) => `File exceeds ${mb} MB limit`,
+        cancel_btn:              'Cancel',
+        cancel_failed:           'Cancel failed',
+        cancelled:               'Task cancelled',
       },
       zh: {
         title:                   '内容分析 Agent',
@@ -115,6 +118,9 @@ class VideoTranscriber {
         error_upload_type:       '不支持的文件类型',
         error_upload_empty:      '文件为空',
         error_upload_size:       (mb) => `文件超过 ${mb} MB 限制`,
+        cancel_btn:              '取消',
+        cancel_failed:           '取消失败',
+        cancelled:               '任务已取消',
       }
     };
 
@@ -146,6 +152,7 @@ class VideoTranscriber {
     this.progressStatus     = document.getElementById('progressStatus');
     this.progressFill       = document.getElementById('progressFill');
     this.progressMessage    = document.getElementById('progressMessage');
+    this.cancelBtn          = document.getElementById('cancelBtn');
     this.resultsPanel       = document.getElementById('resultsPanel');
     this.scriptContent      = document.getElementById('scriptContent');
     this.summaryContent     = document.getElementById('summaryContent');
@@ -178,6 +185,11 @@ class VideoTranscriber {
   /* ── Events ───────────────────────────────────────────── */
   _bindEvents() {
     this.form.addEventListener('submit', (e) => { e.preventDefault(); this._startTranscription(); });
+
+    // Cancel button
+    if (this.cancelBtn) {
+      this.cancelBtn.addEventListener('click', () => this._cancelTask());
+    }
 
     this.langToggle.addEventListener('click', () => {
       this._switchLang(this.currentLang === 'en' ? 'zh' : 'en');
@@ -492,6 +504,22 @@ class VideoTranscriber {
     }
   }
 
+  /* ── Cancel ────────────────────────────────────────────── */
+  async _cancelTask() {
+    if (!this.currentTaskId) return;
+    try {
+      const resp = await fetch(`${this.apiBase}/task/${this.currentTaskId}`, { method: 'DELETE' });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${resp.status}`);
+      }
+      // SSE handler will pick up the "cancelled" broadcast and do cleanup
+    } catch (e) {
+      console.error('Cancel failed:', e);
+      this._showError(this.t('cancel_failed') + ': ' + e.message);
+    }
+  }
+
   /* ── SSE ──────────────────────────────────────────────── */
   _startSSE() {
     if (!this.currentTaskId) return;
@@ -510,6 +538,10 @@ class VideoTranscriber {
         } else if (task.status === 'error') {
           this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
           this._showError(task.error || 'Processing error');
+        } else if (task.status === 'cancelled') {
+          this._stopSP(); this._stopSSE(); this._setLoading(false); this._hideProgress();
+          // 任务已取消，重置到初始状态
+          this.currentTaskId = null;
         }
       } catch (e) {
         console.error('SSE message parse error:', e, ev.data?.substring(0, 200));

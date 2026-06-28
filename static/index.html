@@ -351,6 +351,24 @@
       margin-bottom: 8px;
     }
     .prog-top-left { display: flex; align-items: center; gap: 8px; font-size: 13px; font-family: var(--font-sans); }
+    .prog-top-right { display: flex; align-items: center; }
+    .btn-cancel {
+      background: rgba(224,120,120,.08);
+      border: 1px solid rgba(224,120,120,.25);
+      border-radius: var(--r);
+      color: var(--error);
+      font-size: 11px;
+      font-family: var(--font-mono);
+      padding: 4px 10px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      transition: all .2s;
+      letter-spacing: 0.02em;
+    }
+    .btn-cancel:hover { background: rgba(224,120,120,.18); border-color: var(--error); }
+    .btn-cancel:active { transform: scale(.96); }
     .mode-badge {
       font-size: 10px;
       font-family: var(--font-mono);
@@ -645,6 +663,12 @@
           <span class="mode-badge" id="modeBadge"></span>
         </div>
         <span id="progressStatus">0%</span>
+        <div class="prog-top-right">
+          <button type="button" class="btn-cancel" id="cancelBtn" title="取消" data-i18n="cancel_btn">
+            <i class="fas fa-times"></i>
+            <span>取消</span>
+          </button>
+        </div>
       </div>
       <div class="prog-bar"><div class="prog-fill" id="progressFill"></div></div>
       <div class="prog-msg" id="progressMessage">准备中…</div>
@@ -686,6 +710,6 @@
 </main>
 
 <button id="scrollTopBtn" title="回到顶部" aria-label="回到顶部">&#9650;</button>
-<script src="/static/app.js?v=20260518"></script>
+<script src="/static/app.js?v=20260628"></script>
 </body>
 </html>
