@@ -16,12 +16,14 @@
 
 - 🎥 **多平台支持**: 支持YouTube、Bilibili、抖音、Apple Podcasts、SoundCloud等30+平台
 - 📁 **本地上传**: 支持拖放或选择文件。`.txt` 作为文稿直接走后续管线；音视频支持 `.mp3`、`.mp4`、`.m4a`、`.wav`、`.webm`、`.mkv`、`.ogg`、`.flac` 等，经 FFmpeg 转码后由 Whisper 转录，优化、翻译、摘要流程与链接任务一致
-- ⚡ **字幕优先架构**: 对有原生字幕的平台（如YouTube），直接提取字幕文本，无需下载音频，速度大幅提升；无字幕时自动回退至Whisper转录
+- ⚡ **字幕优先架构**: 对有原生字幕的平台（如YouTube、Bilibili），直接提取字幕文本，无需下载音频，速度大幅提升；无字幕时自动回退至Whisper转录
+- 🍪 **Bilibili 字幕支持**: 支持通过浏览器 cookies 自动获取 Bilibili 字幕（需配置 `COOKIES_FILE` 或 `COOKIES_FROM_BROWSER`）
 - 🗣️ **智能转录**: 无字幕时使用Faster-Whisper进行高精度语音转文字
 - 🤖 **AI文本优化**: 自动错别字修正、句子完整化和智能分段
 - 🌍 **多语言摘要**: 支持多种语言的智能摘要生成
 - 🔧 **自定义AI模型**: 在页面中直接配置任意OpenAI兼容接口（OpenAI、OpenRouter、本地LLM等）——输入API地址和Key，点击 **Fetch** 自动获取可用模型并选择
 - ⚙️ **条件式翻译**: 当所选摘要语言与转录语言不一致时，自动生成翻译
+- 🛑 **任务取消**: 处理中可随时取消，自动清理中间文件
 - 📱 **移动适配**: 完美支持移动设备
 
 ## 🚀 快速开始
@@ -149,8 +151,27 @@ content-analysis-agent/
 | `PORT` | 服务器端口 | `8001` | 否 |
 | `WHISPER_MODEL_SIZE` | Whisper模型大小 | `base` | 否 |
 | `UPLOAD_MAX_MB` | 本地上传单文件大小上限（MB） | `200` | 否 |
+| `COOKIES_FILE` | Bilibili 等站点登录 cookies 文件路径（相对路径基于项目根目录） | - | 否 |
+| `COOKIES_FROM_BROWSER` | 自动从浏览器读取 cookies（支持 `chrome`/`edge`/`firefox`，需浏览器关闭） | - | 否 |
+| `YTDLP_NO_UPDATE` | 跳过 yt-dlp 启动升级检查（设为 `1` 可加速启动） | - | 否 |
 
 另提供可选接口 `POST /api/process-upload`，与向 `/api/process-video` 提交 `file`  multipart 字段行为一致。
+
+### Bilibili 字幕配置
+
+Bilibili 字幕 API 需要登录态。两种方式二选一：
+
+**方式一：cookies 文件（推荐）**
+
+1. 浏览器登录 Bilibili
+2. 在 `.env` 中设置 `COOKIES_FILE=./cookies.txt`
+3. 重启服务，自动生成 cookies 文件（需浏览器关闭）
+
+**方式二：浏览器自动读取**
+
+在 `.env` 中设置 `COOKIES_FROM_BROWSER=edge`（或 `chrome`），启动时将自动从浏览器提取 cookies。注意：**浏览器必须关闭**才能读取。
+
+配置后，处理 Bilibili 链接时将优先使用 AI 字幕/CC 字幕，跳过音频下载和 Whisper 转录，大幅提速。
 
 ### Whisper模型大小选项
 
